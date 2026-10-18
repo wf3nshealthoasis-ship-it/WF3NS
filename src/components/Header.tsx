@@ -1,5 +1,4 @@
-import React from 'react';
-import { Plus, Printer, Download, RefreshCw, Activity, Layers, Table, Clock, ListFilter } from 'lucide-react';
+import { Plus, Printer, Download, RefreshCw, Activity, Layers, Table, Clock, ListFilter, Bell } from 'lucide-react';
 
 interface Props {
   activeView: 'mar' | 'cards' | 'renewals' | 'print';
@@ -9,6 +8,8 @@ interface Props {
   onResetData: () => void;
   onExportCSV: () => void;
   totalMedications: number;
+  dueSoonCount?: number;
+  onOpenDueSoonAlerts?: () => void;
 }
 
 export const Header: React.FC<Props> = ({
@@ -19,6 +20,8 @@ export const Header: React.FC<Props> = ({
   onResetData,
   onExportCSV,
   totalMedications,
+  dueSoonCount = 0,
+  onOpenDueSoonAlerts,
 }) => {
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-xs">
@@ -129,9 +132,29 @@ export const Header: React.FC<Props> = ({
               <span>Reset</span>
             </button>
 
+            {/* Staff DUE_SOON Notification Alert Bell */}
+            {dueSoonCount > 0 ? (
+              <button
+                type="button"
+                onClick={onOpenDueSoonAlerts}
+                className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 border-2 border-rose-400 text-rose-800 text-xs font-black transition-all shadow-xs cursor-pointer"
+                title={`Staff Alert: ${dueSoonCount} medication renewal orders are DUE_SOON (<24h)`}
+              >
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-600"></span>
+                </span>
+                <Bell className="w-3.5 h-3.5 text-rose-600 animate-bounce" />
+                <span className="hidden sm:inline">DUE_SOON:</span>
+                <span className="px-1.5 py-0.2 rounded-full bg-rose-600 text-white font-mono text-[10px] animate-pulse">
+                  {dueSoonCount}
+                </span>
+              </button>
+            ) : null}
+
             <button
               onClick={onOpenAddModal}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg hover:from-blue-700 hover:to-indigo-700 shadow-sm hover:shadow transition-all whitespace-nowrap ring-2 ring-blue-200"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg hover:from-blue-700 hover:to-indigo-700 shadow-sm hover:shadow transition-all whitespace-nowrap ring-2 ring-blue-200 cursor-pointer"
             >
               <Plus className="w-4 h-4 stroke-[2.5]" />
               <span>Add Medication</span>

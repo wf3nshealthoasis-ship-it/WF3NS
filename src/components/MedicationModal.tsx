@@ -282,6 +282,7 @@ export const MedicationModal: React.FC<Props> = ({
                     required
                     value={frequency}
                     onClick={() => setIsFrequencyListOpen(true)}
+                    onFocus={() => setIsFrequencyListOpen(true)}
                     onChange={(e) => setFrequency(e.target.value)}
                     placeholder="Click to open hospital frequency list or type..."
                     className="w-full pl-3 pr-20 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 uppercase font-bold text-slate-900 cursor-pointer hover:border-blue-400 transition-colors"
@@ -483,6 +484,7 @@ export const MedicationModal: React.FC<Props> = ({
               >
                 <option value="ACTIVE">ACTIVE</option>
                 <option value="HOLD">HOLD (Clinical Hold)</option>
+                <option value="DUE_SOON">DUE_SOON (Renewal &lt;24h)</option>
                 <option value="DUE">DUE (Requires Renewal Review)</option>
                 <option value="EXPIRED">EXPIRED</option>
                 <option value="DISCONTINUED">DISCONTINUED</option>

@@ -1,4 +1,4 @@
-export type MedicationStatus = 'ACTIVE' | 'HOLD' | 'DUE' | 'EXPIRED' | 'DISCONTINUED';
+export type MedicationStatus = 'ACTIVE' | 'HOLD' | 'DUE' | 'DUE_SOON' | 'EXPIRED' | 'DISCONTINUED';
 
 export interface Medication {
   id: string;

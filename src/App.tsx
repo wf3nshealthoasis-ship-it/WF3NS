@@ -12,7 +12,7 @@ import { PrintMarView } from './components/PrintMarView.tsx';
 import { MedicationCardsView } from './components/MedicationCardsView.tsx';
 import { FrequencySelectorModal } from './components/FrequencySelectorModal.tsx';
 import { DrugFrequency } from './data/drugFrequencies.ts';
-import { addDaysToDate, calculatePTOM } from './utils/dateUtils.ts';
+import { addDaysToDate, calculatePTOM, isDueWithin24Hours } from './utils/dateUtils.ts';
 
 const LOCAL_STORAGE_KEY = 'f3_medication_chart_records_v1';
 const THEME_STORAGE_KEY = 'f3_medication_chart_theme_v1';
@@ -55,6 +55,7 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isFrequencyChartOpen, setIsFrequencyChartOpen] = useState(false);
   const [editingMedication, setEditingMedication] = useState<Medication | null>(null);
+  const [frequencyTargetMedication, setFrequencyTargetMedication] = useState<Medication | null>(null);
 
   // Notification toast state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -108,6 +109,16 @@ export default function App() {
     return counts;
   }, [medications]);
 
+  // Compute DUE_SOON count across all active medications (<24 hours)
+  const dueSoonCount = useMemo(() => {
+    return medications.filter(
+      (m) =>
+        m.status !== 'HOLD' &&
+        m.status !== 'DISCONTINUED' &&
+        (m.status === 'DUE_SOON' || isDueWithin24Hours(m.renewDate, m.status, m.ptom))
+    ).length;
+  }, [medications]);
+
   // Filter medications
   const filteredMedications = useMemo(() => {
     return medications.filter((m) => {
@@ -124,9 +135,11 @@ export default function App() {
         return false;
       }
       if (statusFilter === 'DUE_SOON') {
-        const match = m.ptom.match(/(-?\d+)\s*DAYS?/i);
-        const days = match ? parseInt(match[1], 10) : 99;
-        if (days > 2 || m.status === 'HOLD' || m.ptom.includes('HOLD')) {
+        const isDue =
+          m.status !== 'HOLD' &&
+          m.status !== 'DISCONTINUED' &&
+          (m.status === 'DUE_SOON' || isDueWithin24Hours(m.renewDate, m.status, m.ptom));
+        if (!isDue) {
           return false;
         }
       }
@@ -278,6 +291,45 @@ export default function App() {
     showToast('Exported CSV Medication Chart.');
   };
 
+  const handleOpenDueSoonAlerts = () => {
+    setStatusFilter('DUE_SOON');
+    setActiveView('cards');
+    showToast(`Filtered to ${dueSoonCount} DUE_SOON medication order${dueSoonCount > 1 ? 's' : ''} (<24h).`);
+  };
+
+  const handleSelectFrequency = (freq: DrugFrequency) => {
+    if (frequencyTargetMedication) {
+      setMedications((prev) =>
+        prev.map((m) => {
+          if (m.id !== frequencyTargetMedication.id) return m;
+          let newEndTime = m.endTime;
+          let newRenewTime = m.renewTime;
+          if (freq.startTime) {
+            const [hStr, mStr] = freq.startTime.split(':');
+            const h = parseInt(hStr, 10);
+            const min = mStr || '00';
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            const formattedHour = h % 12 === 0 ? 12 : h % 12;
+            const timeStr = `${formattedHour}:${min} ${ampm}`;
+            newEndTime = timeStr;
+            newRenewTime = timeStr;
+          }
+          return {
+            ...m,
+            frequency: freq.frequency,
+            endTime: newEndTime,
+            renewTime: newRenewTime,
+          };
+        })
+      );
+      showToast(`Updated frequency for ${frequencyTargetMedication.medicationName} to [${freq.code}] ${freq.frequency}`);
+      setFrequencyTargetMedication(null);
+    } else {
+      showToast(`Selected frequency: [${freq.code}] ${freq.frequency} (${freq.doseTimes})`);
+    }
+    setIsFrequencyChartOpen(false);
+  };
+
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-900 flex flex-col font-sans">
       {/* Top Header */}
@@ -288,10 +340,15 @@ export default function App() {
           setEditingMedication(null);
           setIsModalOpen(true);
         }}
-        onOpenFrequencyList={() => setIsFrequencyChartOpen(true)}
+        onOpenFrequencyList={() => {
+          setFrequencyTargetMedication(null);
+          setIsFrequencyChartOpen(true);
+        }}
         onResetData={handleResetData}
         onExportCSV={handleExportCSV}
         totalMedications={medications.length}
+        dueSoonCount={dueSoonCount}
+        onOpenDueSoonAlerts={handleOpenDueSoonAlerts}
       />
 
       {/* Main Viewport Content */}
@@ -371,6 +428,10 @@ export default function App() {
               onQuickRenew={handleQuickRenew}
               onToggleHold={handleToggleHold}
               onDeleteMedication={handleDeleteMedication}
+              onOpenFrequencyPicker={(med) => {
+                setFrequencyTargetMedication(med);
+                setIsFrequencyChartOpen(true);
+              }}
             />
           </div>
         ) : (
@@ -417,6 +478,10 @@ export default function App() {
               onQuickRenew={handleQuickRenew}
               onToggleHold={handleToggleHold}
               onDeleteMedication={handleDeleteMedication}
+              onOpenFrequencyPicker={(med) => {
+                setFrequencyTargetMedication(med);
+                setIsFrequencyChartOpen(true);
+              }}
             />
           </div>
         )}
@@ -438,11 +503,12 @@ export default function App() {
       {/* Hospital CareWare V5.0 Frequency Reference Modal */}
       <FrequencySelectorModal
         isOpen={isFrequencyChartOpen}
-        onClose={() => setIsFrequencyChartOpen(false)}
-        onSelectFrequency={(freq) => {
-          showToast(`Selected frequency: [${freq.code}] ${freq.frequency} (${freq.doseTimes})`);
+        onClose={() => {
           setIsFrequencyChartOpen(false);
+          setFrequencyTargetMedication(null);
         }}
+        currentFrequency={frequencyTargetMedication?.frequency || ''}
+        onSelectFrequency={handleSelectFrequency}
       />
 
       {/* Minimal Footer */}

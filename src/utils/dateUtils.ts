@@ -81,6 +81,45 @@ export function calculatePTOM(renewDateStr: string, isHold: boolean = false): st
 }
 
 /**
+ * Checks whether a medication renewal date is within 24 hours (today or tomorrow)
+ */
+export function isDueWithin24Hours(renewDateStr: string, status?: string, ptomStr?: string): boolean {
+  if (status === 'HOLD' || status === 'DISCONTINUED' || (ptomStr && ptomStr.includes('HOLD'))) {
+    return false;
+  }
+  if (status === 'DUE' || status === 'DUE_SOON' || status === 'EXPIRED') {
+    return true;
+  }
+  if (ptomStr) {
+    const match = ptomStr.match(/(-?\d+)\s*DAYS?/i);
+    if (match) {
+      const days = parseInt(match[1], 10);
+      return days <= 1; // 0 days (today) or 1 day (within 24 hours)
+    }
+  }
+  const target = parseDate(renewDateStr);
+  if (!target) return false;
+  const today = new Date(2026, 9, 18); // Oct 18, 2026 reference date
+  const diffTime = target.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays <= 1;
+}
+
+/**
+ * Returns the effective clinical status, automatically promoting to 'DUE_SOON'
+ * when renewal deadline is within 24 hours.
+ */
+export function getEffectiveStatus(status: string, renewDate: string, ptom?: string): string {
+  if (status === 'HOLD' || status === 'DISCONTINUED' || (ptom && ptom.includes('HOLD'))) {
+    return status;
+  }
+  if (status === 'DUE_SOON' || isDueWithin24Hours(renewDate, status, ptom)) {
+    return 'DUE_SOON';
+  }
+  return status;
+}
+
+/**
  * Add days to a given "DD-MM-YYYY" string
  */
 export function addDaysToDate(dateStr: string, daysToAdd: number): string {

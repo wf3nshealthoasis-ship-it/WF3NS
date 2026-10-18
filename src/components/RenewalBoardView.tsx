@@ -30,7 +30,7 @@ export const RenewalBoardView: React.FC<Props> = ({
     const daysMatch = med.ptom.match(/(-?\d+)\s*DAYS?/i);
     const days = daysMatch ? parseInt(daysMatch[1], 10) : 99;
 
-    if (days <= 2 || med.status === 'DUE' || days <= 0) {
+    if (days <= 2 || med.status === 'DUE' || med.status === 'DUE_SOON' || days <= 0) {
       urgent.push(med);
     } else if (days <= 6) {
       upcoming.push(med);

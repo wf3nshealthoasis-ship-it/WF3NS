@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Medication, RenewalColorTheme } from '../types/medication.ts';
 import { getRenewalStyle, getRouteBadgeStyle, getRoomBadgeStyle } from '../utils/themeConfig.ts';
-import { calculatePTOM } from '../utils/dateUtils.ts';
+import { calculatePTOM, isDueWithin24Hours } from '../utils/dateUtils.ts';
 import { DRUG_FREQUENCIES } from '../data/drugFrequencies.ts';
-import { Edit2, RefreshCw, Pause, Play, Trash2, ArrowUpDown } from 'lucide-react';
+import { Edit2, RefreshCw, Pause, Play, Trash2, ArrowUpDown, Bell, Activity } from 'lucide-react';
 
 interface Props {
   medications: Medication[];
@@ -14,6 +14,7 @@ interface Props {
   onQuickRenew: (id: string, days: number) => void;
   onToggleHold: (id: string) => void;
   onDeleteMedication: (id: string) => void;
+  onOpenFrequencyPicker?: (medication: Medication) => void;
 }
 
 type SortField = 'room' | 'medicationName' | 'startDate' | 'endDate' | 'renewDate' | 'status' | 'ptom';
@@ -27,6 +28,7 @@ export const MedicationTable: React.FC<Props> = ({
   onQuickRenew,
   onToggleHold,
   onDeleteMedication,
+  onOpenFrequencyPicker,
 }) => {
   const [sortField, setSortField] = useState<SortField>('room');
   const [sortAsc, setSortAsc] = useState(true);
@@ -129,14 +131,17 @@ export const MedicationTable: React.FC<Props> = ({
                 const routeStyle = getRouteBadgeStyle(med.route);
                 const roomStyle = getRoomBadgeStyle(med.room);
                 const isHold = med.status === 'HOLD' || med.ptom.includes('HOLD');
-                const isDue = med.status === 'DUE' || med.ptom.startsWith('0') || med.ptom.startsWith('-') || med.ptom === '1 DAYS' || med.ptom === '2 DAYS';
+                const isDueSoon24h = med.status === 'DUE_SOON' || isDueWithin24Hours(med.renewDate, med.status, med.ptom);
+                const isDue = isDueSoon24h || med.status === 'DUE' || med.ptom.startsWith('0') || med.ptom.startsWith('-') || med.ptom === '1 DAYS' || med.ptom === '2 DAYS';
 
                 // PTOM pill color
                 const getPtomColor = () => {
                   if (isHold) return 'bg-slate-100 text-slate-700 border-slate-300';
                   const match = med.ptom.match(/(-?\d+)\s*DAYS?/i);
                   const days = match ? parseInt(match[1], 10) : 99;
-                  if (days <= 0 || med.status === 'DUE') return 'bg-rose-100 text-rose-900 border-rose-300 font-bold';
+                  if (days <= 0 || med.status === 'DUE' || med.status === 'DUE_SOON' || isDueSoon24h) {
+                    return 'bg-rose-100 text-rose-900 border-rose-300 font-black animate-pulse';
+                  }
                   if (days <= 2) return 'bg-amber-100 text-amber-900 border-amber-300 font-bold';
                   return 'bg-emerald-50 text-emerald-800 border-emerald-200';
                 };
@@ -147,6 +152,8 @@ export const MedicationTable: React.FC<Props> = ({
                     className={`transition-colors group ${
                       isHold
                         ? 'bg-slate-50/60 opacity-80'
+                        : isDueSoon24h
+                        ? 'bg-rose-50/30 hover:bg-rose-50/60'
                         : isDue
                         ? 'bg-amber-50/20 hover:bg-amber-50/40'
                         : index % 2 === 0
@@ -214,23 +221,40 @@ export const MedicationTable: React.FC<Props> = ({
                       )}
                     </td>
 
-                    {/* Frequency with CareWare V5.0 Datalist */}
+                    {/* Frequency with 1-Click List Opener */}
                     <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">
                       {inlineEditMode ? (
-                        <div>
+                        <div className="flex items-center gap-1">
                           <input
                             type="text"
                             list="careware-frequencies"
                             value={med.frequency}
                             onChange={(e) => onUpdateMedicationField(med.id, 'frequency', e.target.value)}
                             placeholder="Type or select frequency..."
-                            className="w-36 px-2 py-0.5 border border-slate-300 rounded text-xs bg-white uppercase font-bold text-slate-900"
+                            className="w-32 px-2 py-0.5 border border-slate-300 rounded text-xs bg-white uppercase font-bold text-slate-900"
                           />
+                          <button
+                            type="button"
+                            onClick={() => onOpenFrequencyPicker?.(med)}
+                            className="px-1.5 py-0.5 text-[10px] bg-blue-100 hover:bg-blue-200 text-blue-900 border border-blue-300 rounded font-bold cursor-pointer"
+                            title="Open Hospital Frequency List"
+                          >
+                            List
+                          </button>
                         </div>
                       ) : (
-                        <span className="text-indigo-800 font-bold text-[11px] uppercase bg-indigo-50/60 px-2 py-0.5 rounded">
-                          {med.frequency}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onOpenFrequencyPicker?.(med)}
+                          className="flex items-center gap-1.5 text-indigo-800 hover:text-indigo-950 font-bold text-[11px] uppercase bg-indigo-50/70 hover:bg-indigo-100 px-2 py-0.5 rounded border border-indigo-100 hover:border-indigo-300 transition-colors cursor-pointer group shadow-2xs"
+                          title="Click to open hospital frequency list and change frequency"
+                        >
+                          <Activity className="w-3 h-3 text-indigo-600 group-hover:scale-110 transition-transform" />
+                          <span>{med.frequency}</span>
+                          <span className="text-[9px] text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity font-semibold">
+                            ✎
+                          </span>
+                        </button>
                       )}
                     </td>
 
@@ -320,7 +344,7 @@ export const MedicationTable: React.FC<Props> = ({
                       )}
                     </td>
 
-                    {/* Status */}
+                    {/* Status with Pulsing Alert on DUE_SOON */}
                     <td className="py-2.5 px-3 whitespace-nowrap">
                       {inlineEditMode ? (
                         <select
@@ -337,9 +361,18 @@ export const MedicationTable: React.FC<Props> = ({
                           <option value="ACTIVE">ACTIVE</option>
                           <option value="HOLD">HOLD</option>
                           <option value="DUE">DUE</option>
+                          <option value="DUE_SOON">DUE_SOON (&lt;24h)</option>
                           <option value="EXPIRED">EXPIRED</option>
                           <option value="DISCONTINUED">DISCONTINUED</option>
                         </select>
+                      ) : isDueSoon24h ? (
+                        <span
+                          className="inline-flex items-center gap-1 font-black text-[11px] px-2.5 py-0.5 rounded-full border bg-rose-600 text-white shadow-xs animate-pulse ring-2 ring-rose-200"
+                          title="Alert: DUE_SOON triggered - renewal deadline is within 24 hours"
+                        >
+                          <Bell className="w-3 h-3 text-white animate-bounce" />
+                          <span>DUE_SOON</span>
+                        </span>
                       ) : (
                         <span
                           className={`font-black text-[11px] px-2 py-0.5 rounded-full border ${

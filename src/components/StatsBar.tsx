@@ -27,11 +27,15 @@ export const StatsBar: React.FC<Props> = ({
 }) => {
   const totalCount = medications.length;
 
-  // Count due soon (<= 2 days)
+  // Count DUE_SOON (< 24 hours)
   const dueSoonCount = medications.filter((m) => {
-    if (m.status === 'DUE') return true;
+    if (m.status === 'HOLD' || m.status === 'DISCONTINUED' || m.ptom.includes('HOLD')) return false;
+    if (m.status === 'DUE_SOON' || m.status === 'DUE') return true;
     const match = m.ptom.match(/(-?\d+)\s*DAYS?/i);
-    return match ? parseInt(match[1], 10) <= 2 && m.status !== 'HOLD' : false;
+    if (match) {
+      return parseInt(match[1], 10) <= 1; // 0 or 1 day (within 24h)
+    }
+    return false;
   }).length;
 
   const holdCount = medications.filter((m) => m.status === 'HOLD' || m.ptom.includes('HOLD')).length;
@@ -83,25 +87,41 @@ export const StatsBar: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Due for Renewal Card */}
-        <div className={`rounded-xl border overflow-hidden shadow-xs hover:shadow-md transition-all ${
-          dueSoonCount > 0 ? 'bg-amber-50/60 border-amber-300' : 'bg-white border-slate-200/90'
-        }`}>
-          <div className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-400" />
+        {/* DUE_SOON Alert Card (<24 Hours) with Pulsing Beacon */}
+        <div
+          onClick={() => setStatusFilter(statusFilter === 'DUE_SOON' ? 'ALL' : 'DUE_SOON')}
+          className={`rounded-xl border overflow-hidden shadow-xs hover:shadow-md transition-all cursor-pointer ${
+            dueSoonCount > 0
+              ? 'bg-gradient-to-br from-rose-50 to-amber-50/50 border-rose-300 ring-2 ring-rose-200'
+              : 'bg-white border-slate-200/90'
+          }`}
+          title="Click to filter orders whose renewal date is within 24 hours"
+        >
+          <div className="h-1 bg-gradient-to-r from-rose-600 via-rose-500 to-amber-500" />
           <div className="p-3.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-amber-900 uppercase tracking-wider">
-                Due Renewal (≤2d)
-              </span>
-              <div className="w-6 h-6 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center ring-1 ring-amber-300">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-black text-rose-900 uppercase tracking-wider">
+                  DUE SOON (&lt;24H)
+                </span>
+                {dueSoonCount > 0 && (
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-600"></span>
+                  </span>
+                )}
+              </div>
+              <div className="w-6 h-6 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center ring-1 ring-rose-300">
                 <Clock className="w-3.5 h-3.5" />
               </div>
             </div>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-black font-mono tracking-tight text-amber-900 tabular-nums">
+              <span className="text-2xl font-black font-mono tracking-tight text-rose-700 tabular-nums">
                 {dueSoonCount}
               </span>
-              <span className="text-[11px] font-bold text-amber-700">review required</span>
+              <span className="text-[11px] font-black text-rose-600 animate-pulse">
+                renewal &lt;24h
+              </span>
             </div>
           </div>
         </div>
@@ -150,7 +170,7 @@ export const StatsBar: React.FC<Props> = ({
             {[
               { id: 'ALL', label: 'All Orders', activeColor: 'bg-white text-slate-900 font-bold shadow-xs' },
               { id: 'ACTIVE', label: 'Active', activeColor: 'bg-emerald-600 text-white font-bold shadow-xs' },
-              { id: 'DUE_SOON', label: 'Due ≤ 2d', activeColor: 'bg-amber-600 text-white font-bold shadow-xs' },
+              { id: 'DUE_SOON', label: 'Due Soon (<24h)', activeColor: 'bg-rose-600 text-white font-black shadow-xs' },
               { id: 'HOLD', label: 'On Hold', activeColor: 'bg-slate-700 text-white font-bold shadow-xs' },
             ].map((tab) => {
               const isSelected = statusFilter === tab.id;
