@@ -1,0 +1,6 @@
+{
+  "name": "MediTrack MAR - Patient Medication Record",
+  "description": "Patient Medication Administration Record (MAR) for hospital wards with editable start, end, and color-coded renewal dates and times.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
