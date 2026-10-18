@@ -10,7 +10,9 @@ import {
   ROUTE_OPTIONS,
 } from '../utils/dateUtils.ts';
 import { RENEWAL_THEMES } from '../utils/themeConfig.ts';
-import { X, Calendar, Clock, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { X, Calendar, Clock, AlertTriangle, ShieldCheck, ListFilter, Sparkles } from 'lucide-react';
+import { FrequencySelectorModal } from './FrequencySelectorModal.tsx';
+import { DrugFrequency, DRUG_FREQUENCIES } from '../data/drugFrequencies.ts';
 
 interface Props {
   isOpen: boolean;
@@ -35,6 +37,8 @@ export const MedicationModal: React.FC<Props> = ({
   const [medicationName, setMedicationName] = useState('');
   const [dose, setDose] = useState('');
   const [frequency, setFrequency] = useState('ONCE DAILY');
+  const [selectedFreqDetails, setSelectedFreqDetails] = useState<DrugFrequency | null>(null);
+  const [isFrequencyListOpen, setIsFrequencyListOpen] = useState(false);
   const [route, setRoute] = useState('Oral');
   const [startDate, setStartDate] = useState(formatDate(new Date(2026, 9, 18)));
   const [endDate, setEndDate] = useState(formatDate(new Date(2026, 9, 24)));
@@ -257,26 +261,84 @@ export const MedicationModal: React.FC<Props> = ({
           {/* Frequency & Quick Duration */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Frequency / Timing
-              </label>
-              <div className="space-y-1">
-                <input
-                  type="text"
-                  value={frequency}
-                  onChange={(e) => setFrequency(e.target.value)}
-                  placeholder="e.g. ONCE DAILY, TWICE DAILY"
-                  className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:ring-1 focus:ring-blue-500 uppercase font-medium"
-                />
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {FREQUENCY_PRESETS.slice(0, 5).map((f) => (
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-slate-800">
+                  Frequency / Administration Cadence *
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsFrequencyListOpen(true)}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2 py-0.5 rounded-md transition-colors border border-blue-200"
+                >
+                  <ListFilter className="w-3 h-3 text-blue-600" />
+                  <span>Open Frequency List (55)</span>
+                </button>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="relative">
+                  <input
+                    type="text"
+                    required
+                    value={frequency}
+                    onClick={() => setIsFrequencyListOpen(true)}
+                    onChange={(e) => setFrequency(e.target.value)}
+                    placeholder="Click to open hospital frequency list or type..."
+                    className="w-full pl-3 pr-20 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 uppercase font-bold text-slate-900 cursor-pointer hover:border-blue-400 transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIsFrequencyListOpen(true)}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold rounded border border-blue-200 transition-colors"
+                  >
+                    Browse List
+                  </button>
+                </div>
+
+                {/* Selected CareWare frequency badge if details known */}
+                {selectedFreqDetails && (
+                  <div className="p-2 rounded-lg bg-blue-50/80 border border-blue-200 text-[11px] font-mono text-slate-700 flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-blue-900 mr-1.5">[{selectedFreqDetails.code}]</span>
+                      <span>Dose Times: <strong className="text-blue-800">{selectedFreqDetails.doseTimes}</strong></span>
+                    </div>
+                    <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-blue-200/80 text-blue-900">
+                      CareWare V5.0
+                    </span>
+                  </div>
+                )}
+
+                {/* Popular Hospital CareWare V5.0 Quick Chips */}
+                <div className="flex flex-wrap gap-1 pt-0.5">
+                  {[
+                    { code: 'OD', label: 'OD (Once daily)', time: '9:00 AM' },
+                    { code: 'BID', label: 'BID (Twice Daily)', time: '9:00 AM' },
+                    { code: 'TID', label: 'TID (3x Daily)', time: '9:00 AM' },
+                    { code: 'QID', label: 'QID (4x Daily)', time: '9:00 AM' },
+                    { code: 'BIDI', label: 'BIDI (Insulin)', time: '6:00 AM' },
+                    { code: 'OD06', label: 'OD06 (Levothyroxine)', time: '6:00 AM' },
+                    { code: 'HS', label: 'HS (Bedtime 21:00)', time: '9:00 PM' },
+                    { code: 'Q8H6', label: 'Q8H (Antibiotic)', time: '6:00 AM' },
+                  ].map((preset) => (
                     <button
-                      key={f}
+                      key={preset.code}
                       type="button"
-                      onClick={() => setFrequency(f)}
-                      className="px-1.5 py-0.5 text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors"
+                      onClick={() => {
+                        const matched = DRUG_FREQUENCIES.find((df) => df.code === preset.code);
+                        if (matched) {
+                          setFrequency(matched.frequency);
+                          setSelectedFreqDetails(matched);
+                        } else {
+                          setFrequency(preset.label);
+                        }
+                        if (preset.time) {
+                          setEndTime(preset.time);
+                          setRenewTime(preset.time);
+                        }
+                      }}
+                      className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 hover:bg-blue-100 hover:text-blue-900 text-slate-700 rounded-md border border-slate-200 transition-colors"
                     >
-                      {f}
+                      {preset.label}
                     </button>
                   ))}
                 </div>
@@ -293,7 +355,7 @@ export const MedicationModal: React.FC<Props> = ({
                     key={days}
                     type="button"
                     onClick={() => handleApplyDuration(days)}
-                    className="px-2.5 py-1 text-xs font-medium bg-slate-100 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 border border-slate-200 rounded-md transition-colors"
+                    className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 border border-slate-200 rounded-md transition-colors"
                   >
                     +{days} Days
                   </button>
@@ -473,6 +535,27 @@ export const MedicationModal: React.FC<Props> = ({
           </div>
         </form>
       </div>
+
+      {/* Hospital CareWare V5.0 Frequency List Modal */}
+      <FrequencySelectorModal
+        isOpen={isFrequencyListOpen}
+        onClose={() => setIsFrequencyListOpen(false)}
+        currentFrequency={frequency}
+        onSelectFrequency={(freq) => {
+          setFrequency(freq.frequency);
+          setSelectedFreqDetails(freq);
+          if (freq.startTime) {
+            const [hStr, mStr] = freq.startTime.split(':');
+            const h = parseInt(hStr, 10);
+            const m = mStr || '00';
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            const formattedHour = h % 12 === 0 ? 12 : h % 12;
+            const timeStr = `${formattedHour}:${m} ${ampm}`;
+            setEndTime(timeStr);
+            setRenewTime(timeStr);
+          }
+        }}
+      />
     </div>
   );
 };

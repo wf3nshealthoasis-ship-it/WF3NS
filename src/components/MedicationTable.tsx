@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Medication, RenewalColorTheme } from '../types/medication.ts';
 import { getRenewalStyle, getRouteBadgeStyle, getRoomBadgeStyle } from '../utils/themeConfig.ts';
 import { calculatePTOM } from '../utils/dateUtils.ts';
+import { DRUG_FREQUENCIES } from '../data/drugFrequencies.ts';
 import { Edit2, RefreshCw, Pause, Play, Trash2, ArrowUpDown } from 'lucide-react';
 
 interface Props {
@@ -213,15 +214,19 @@ export const MedicationTable: React.FC<Props> = ({
                       )}
                     </td>
 
-                    {/* Frequency */}
+                    {/* Frequency with CareWare V5.0 Datalist */}
                     <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">
                       {inlineEditMode ? (
-                        <input
-                          type="text"
-                          value={med.frequency}
-                          onChange={(e) => onUpdateMedicationField(med.id, 'frequency', e.target.value)}
-                          className="w-32 px-1.5 py-0.5 border border-slate-300 rounded text-xs bg-white uppercase"
-                        />
+                        <div>
+                          <input
+                            type="text"
+                            list="careware-frequencies"
+                            value={med.frequency}
+                            onChange={(e) => onUpdateMedicationField(med.id, 'frequency', e.target.value)}
+                            placeholder="Type or select frequency..."
+                            className="w-36 px-2 py-0.5 border border-slate-300 rounded text-xs bg-white uppercase font-bold text-slate-900"
+                          />
+                        </div>
                       ) : (
                         <span className="text-indigo-800 font-bold text-[11px] uppercase bg-indigo-50/60 px-2 py-0.5 rounded">
                           {med.frequency}
@@ -433,6 +438,15 @@ export const MedicationTable: React.FC<Props> = ({
           <span>Highlighted Columns: <strong className="text-amber-950">RENEW DATE</strong> & <strong className="text-amber-950">RENEW TIME</strong></span>
         </div>
       </div>
+
+      {/* CareWare V5.0 Frequency Autocomplete Datalist */}
+      <datalist id="careware-frequencies">
+        {DRUG_FREQUENCIES.map((df) => (
+          <option key={df.slNo} value={df.frequency}>
+            {df.code} - {df.frequency} ({df.doseTimes})
+          </option>
+        ))}
+      </datalist>
     </div>
   );
 };

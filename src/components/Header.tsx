@@ -1,10 +1,11 @@
 import React from 'react';
-import { Plus, Printer, Download, RefreshCw, Activity, Layers, Table, Clock } from 'lucide-react';
+import { Plus, Printer, Download, RefreshCw, Activity, Layers, Table, Clock, ListFilter } from 'lucide-react';
 
 interface Props {
   activeView: 'mar' | 'cards' | 'renewals' | 'print';
   setActiveView: (view: 'mar' | 'cards' | 'renewals' | 'print') => void;
   onOpenAddModal: () => void;
+  onOpenFrequencyList: () => void;
   onResetData: () => void;
   onExportCSV: () => void;
   totalMedications: number;
@@ -14,6 +15,7 @@ export const Header: React.FC<Props> = ({
   activeView,
   setActiveView,
   onOpenAddModal,
+  onOpenFrequencyList,
   onResetData,
   onExportCSV,
   totalMedications,
@@ -95,6 +97,15 @@ export const Header: React.FC<Props> = ({
             >
               <Printer className="w-3.5 h-3.5 text-slate-600" />
               <span>Printable MAR</span>
+            </button>
+
+            <button
+              onClick={onOpenFrequencyList}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-700 hover:text-blue-900 hover:bg-blue-100/80 transition-all border border-blue-200/80 bg-blue-50/80"
+              title="Open CareWare V5.0 Hospital Frequency Reference List"
+            >
+              <ListFilter className="w-3.5 h-3.5 text-blue-600" />
+              <span>Frequency List (55)</span>
             </button>
           </nav>
 

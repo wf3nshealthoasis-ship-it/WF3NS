@@ -10,6 +10,8 @@ import { MedicationModal } from './components/MedicationModal.tsx';
 import { RenewalBoardView } from './components/RenewalBoardView.tsx';
 import { PrintMarView } from './components/PrintMarView.tsx';
 import { MedicationCardsView } from './components/MedicationCardsView.tsx';
+import { FrequencySelectorModal } from './components/FrequencySelectorModal.tsx';
+import { DrugFrequency } from './data/drugFrequencies.ts';
 import { addDaysToDate, calculatePTOM } from './utils/dateUtils.ts';
 
 const LOCAL_STORAGE_KEY = 'f3_medication_chart_records_v1';
@@ -51,6 +53,7 @@ export default function App() {
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isFrequencyChartOpen, setIsFrequencyChartOpen] = useState(false);
   const [editingMedication, setEditingMedication] = useState<Medication | null>(null);
 
   // Notification toast state
@@ -285,6 +288,7 @@ export default function App() {
           setEditingMedication(null);
           setIsModalOpen(true);
         }}
+        onOpenFrequencyList={() => setIsFrequencyChartOpen(true)}
         onResetData={handleResetData}
         onExportCSV={handleExportCSV}
         totalMedications={medications.length}
@@ -429,6 +433,16 @@ export default function App() {
         initialMedication={editingMedication}
         existingRooms={existingRooms}
         renewalTheme={renewalTheme}
+      />
+
+      {/* Hospital CareWare V5.0 Frequency Reference Modal */}
+      <FrequencySelectorModal
+        isOpen={isFrequencyChartOpen}
+        onClose={() => setIsFrequencyChartOpen(false)}
+        onSelectFrequency={(freq) => {
+          showToast(`Selected frequency: [${freq.code}] ${freq.frequency} (${freq.doseTimes})`);
+          setIsFrequencyChartOpen(false);
+        }}
       />
 
       {/* Minimal Footer */}
