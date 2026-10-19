@@ -81,6 +81,35 @@ export function calculatePTOM(renewDateStr: string, isHold: boolean = false): st
 }
 
 /**
+ * Returns numeric days remaining until renewal for sorting and triage.
+ * Lower numbers mean more urgent. Overdue/due today are <= 0.
+ * HOLD orders return 9999 so they sort to the end.
+ */
+export function getRenewalDaysRemaining(
+  renewDateStr: string,
+  status?: string,
+  ptomStr?: string
+): number {
+  if (status === 'HOLD' || (ptomStr && ptomStr.includes('HOLD'))) {
+    return 9999;
+  }
+  if (status === 'DISCONTINUED') {
+    return 99999;
+  }
+  if (ptomStr) {
+    const match = ptomStr.match(/(-?\d+)\s*DAYS?/i);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+  }
+  const target = parseDate(renewDateStr);
+  if (!target) return 9999;
+  const today = new Date(2026, 9, 18);
+  const diffTime = target.getTime() - today.getTime();
+  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+}
+
+/**
  * Checks whether a medication renewal date is within 24 hours (today or tomorrow)
  */
 export function isDueWithin24Hours(renewDateStr: string, status?: string, ptomStr?: string): boolean {

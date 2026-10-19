@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { Medication, RenewalColorTheme } from '../types/medication.ts';
 import { MedicationCard } from './MedicationCard.tsx';
-import { LayoutGrid, Layers, Building2, Bell, AlertTriangle, Filter, Clock, Printer } from 'lucide-react';
+import { LayoutGrid, Layers, Building2, Bell, AlertTriangle, Filter, Clock, Printer, ArrowDownUp, Sparkles } from 'lucide-react';
 import { getRoomBadgeStyle } from '../utils/themeConfig.ts';
-import { isDueWithin24Hours, isDueWithin48Hours } from '../utils/dateUtils.ts';
+import { isDueWithin24Hours, isDueWithin48Hours, getRenewalDaysRemaining } from '../utils/dateUtils.ts';
 
 interface Props {
   medications: Medication[];
@@ -30,9 +30,10 @@ export const MedicationCardsView: React.FC<Props> = ({
 }) => {
   const [groupByRoom, setGroupByRoom] = useState(true);
   const [urgencyFilter, setUrgencyFilter] = useState<'ALL' | 'DUE_SOON' | 'DUE_48H'>('ALL');
+  const [sortBy, setSortBy] = useState<'renewal_days_asc' | 'renewal_days_desc' | 'room' | 'name'>('renewal_days_asc');
 
   // Identify DUE_SOON medications (< 24 hours)
-  const dueSoonMedications = React.useMemo(() => {
+  const dueSoonMedications = useMemo(() => {
     return medications.filter(
       (m) =>
         m.status !== 'HOLD' &&
@@ -42,7 +43,7 @@ export const MedicationCardsView: React.FC<Props> = ({
   }, [medications]);
 
   // Identify 48h medications (≤ 48 hours)
-  const due48hMedications = React.useMemo(() => {
+  const due48hMedications = useMemo(() => {
     return medications.filter(
       (m) =>
         m.status !== 'HOLD' &&
@@ -51,26 +52,63 @@ export const MedicationCardsView: React.FC<Props> = ({
     );
   }, [medications]);
 
-  const displayedMedications = React.useMemo(() => {
+  const displayedMedications = useMemo(() => {
     if (urgencyFilter === 'DUE_SOON') return dueSoonMedications;
     if (urgencyFilter === 'DUE_48H') return due48hMedications;
     return medications;
   }, [medications, dueSoonMedications, due48hMedications, urgencyFilter]);
 
-  // Group medications by room if enabled
-  const groupedRooms = React.useMemo(() => {
+  // Sort medications according to renewal days (lowest days remaining first by default)
+  const sortMedications = useCallback(
+    (meds: Medication[]) => {
+      return [...meds].sort((a, b) => {
+        if (sortBy === 'renewal_days_asc') {
+          const daysA = getRenewalDaysRemaining(a.renewDate, a.status, a.ptom);
+          const daysB = getRenewalDaysRemaining(b.renewDate, b.status, b.ptom);
+          if (daysA !== daysB) return daysA - daysB; // Smallest renewal days remaining first!
+          return a.medicationName.localeCompare(b.medicationName);
+        }
+        if (sortBy === 'renewal_days_desc') {
+          const daysA = getRenewalDaysRemaining(a.renewDate, a.status, a.ptom);
+          const daysB = getRenewalDaysRemaining(b.renewDate, b.status, b.ptom);
+          if (daysA !== daysB) return daysB - daysA;
+          return a.medicationName.localeCompare(b.medicationName);
+        }
+        if (sortBy === 'room') {
+          const numA = parseInt(a.room.replace(/\D/g, ''), 10) || 0;
+          const numB = parseInt(b.room.replace(/\D/g, ''), 10) || 0;
+          if (numA !== numB) return numA - numB;
+          return a.medicationName.localeCompare(b.medicationName);
+        }
+        if (sortBy === 'name') {
+          return a.medicationName.localeCompare(b.medicationName);
+        }
+        return 0;
+      });
+    },
+    [sortBy]
+  );
+
+  // Group medications by room if enabled, with cards sorted by renewal days in each room
+  const groupedRooms = useMemo(() => {
     const map = new Map<string, Medication[]>();
     displayedMedications.forEach((med) => {
       const list = map.get(med.room) || [];
       list.push(med);
       map.set(med.room, list);
     });
-    return Array.from(map.entries()).sort(([roomA], [roomB]) => {
-      const numA = parseInt(roomA.replace(/\D/g, ''), 10) || 0;
-      const numB = parseInt(roomB.replace(/\D/g, ''), 10) || 0;
-      return numA - numB;
-    });
-  }, [displayedMedications]);
+    return Array.from(map.entries())
+      .sort(([roomA], [roomB]) => {
+        const numA = parseInt(roomA.replace(/\D/g, ''), 10) || 0;
+        const numB = parseInt(roomB.replace(/\D/g, ''), 10) || 0;
+        return numA - numB;
+      })
+      .map(([room, list]) => [room, sortMedications(list)] as [string, Medication[]]);
+  }, [displayedMedications, sortMedications]);
+
+  const sortedDisplayedMedications = useMemo(() => {
+    return sortMedications(displayedMedications);
+  }, [displayedMedications, sortMedications]);
 
   if (medications.length === 0) {
     return (
@@ -159,9 +197,9 @@ export const MedicationCardsView: React.FC<Props> = ({
         </div>
       )}
 
-      {/* View Options Bar with Subtle Color Accents */}
-      <div className="flex items-center justify-between text-xs text-slate-700 bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
-        <div className="flex items-center gap-2">
+      {/* View Options Bar with Subtle Color Accents & Renewal Sort Controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-700 bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="w-5 h-5 rounded-md bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
             <Layers className="w-3.5 h-3.5" />
           </div>
@@ -174,31 +212,67 @@ export const MedicationCardsView: React.FC<Props> = ({
           </span>
         </div>
 
-        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
-          <button
-            onClick={() => setGroupByRoom(true)}
-            className={`px-3 py-1 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-              groupByRoom
-                ? 'bg-white text-purple-800 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5 text-purple-600" />
-            <span>Group by Room</span>
-          </button>
-          <button
-            onClick={() => setGroupByRoom(false)}
-            className={`px-3 py-1 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-              !groupByRoom
-                ? 'bg-white text-blue-800 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <LayoutGrid className="w-3.5 h-3.5 text-blue-600" />
-            <span>Fluid Grid</span>
-          </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Renewal Sort Selector */}
+          <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
+            <ArrowDownUp className="w-3.5 h-3.5 text-blue-600" />
+            <span className="text-[11px] font-bold text-slate-600">Sort:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="bg-white text-xs font-bold text-slate-900 border border-slate-300 rounded px-2 py-0.5 focus:outline-blue-500 cursor-pointer shadow-2xs"
+            >
+              <option value="renewal_days_asc">Renewal Days (Due Soonest First)</option>
+              <option value="renewal_days_desc">Renewal Days (Longest First)</option>
+              <option value="room">Room Number</option>
+              <option value="name">Medication Name (A-Z)</option>
+            </select>
+          </div>
+
+          {/* Group / Grid Toggle */}
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
+            <button
+              onClick={() => setGroupByRoom(true)}
+              className={`px-3 py-1 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                groupByRoom
+                  ? 'bg-white text-purple-800 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5 text-purple-600" />
+              <span>Group by Room</span>
+            </button>
+            <button
+              onClick={() => setGroupByRoom(false)}
+              className={`px-3 py-1 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                !groupByRoom
+                  ? 'bg-white text-blue-800 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5 text-blue-600" />
+              <span>Fluid Grid</span>
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Renewal Days Priority Banner */}
+      {sortBy === 'renewal_days_asc' && (
+        <div className="flex items-center justify-between text-xs px-3.5 py-2 rounded-xl bg-blue-50/90 border border-blue-200/90 text-blue-950 font-medium shadow-2xs">
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0">
+              <Sparkles className="w-3 h-3" />
+            </div>
+            <span>
+              <strong className="font-extrabold text-blue-900">Renewal Prioritization Active:</strong> Cards are ordered according to renewal days — medications needing renewal soonest appear first.
+            </span>
+          </div>
+          <span className="hidden sm:inline-flex text-[11px] font-mono font-bold text-blue-800 bg-white px-2.5 py-0.5 rounded-full border border-blue-200 shadow-2xs">
+            0d (Urgent) → 1d → 2d → 5d → 7d
+          </span>
+        </div>
+      )}
 
       {/* Render Cards */}
       {groupByRoom ? (
@@ -216,6 +290,9 @@ export const MedicationCardsView: React.FC<Props> = ({
                     </span>
                     <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
                       {roomMeds.length} Prescription{roomMeds.length > 1 ? 's' : ''}
+                    </span>
+                    <span className="text-[11px] font-semibold text-slate-500">
+                      (Ordered by Renewal Days)
                     </span>
                   </div>
                 </div>
@@ -240,7 +317,7 @@ export const MedicationCardsView: React.FC<Props> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {displayedMedications.map((med) => (
+          {sortedDisplayedMedications.map((med) => (
             <MedicationCard
               key={med.id}
               medication={med}

@@ -103,8 +103,8 @@ export const MedicationCard: React.FC<Props> = ({
             </div>
           )}
 
-          <span className={`text-[11px] px-2 py-0.5 rounded-md font-mono tracking-wide ${getPtomBadge()}`}>
-            {medication.ptom}
+          <span className={`text-[11px] px-2.5 py-0.5 rounded-md font-mono font-bold tracking-wide shadow-2xs border ${getPtomBadge()}`}>
+            {isHold ? 'HOLD' : `RENEW: ${medication.ptom}`}
           </span>
           <span
             className={`w-2.5 h-2.5 rounded-full ${
@@ -124,7 +124,7 @@ export const MedicationCard: React.FC<Props> = ({
       </div>
 
       {/* Medication Identification & Dosage Body */}
-      <div className="p-4 space-y-3.5 flex-1">
+      <div className="p-4 space-y-3 flex-1">
         {/* Pulsing Critical 24h Renewal Notification Banner for Staff */}
         {isDueSoon24h && (
           <div className="flex items-center justify-between p-3 rounded-xl bg-gradient-to-r from-rose-500/20 via-rose-500/15 to-amber-500/20 border-2 border-rose-500 text-rose-950 shadow-sm animate-pulse">
@@ -184,6 +184,55 @@ export const MedicationCard: React.FC<Props> = ({
           </div>
         )}
 
+        {/* 1. DISTINCT HIGHLIGHTED RENEWAL BOX - SHOWING FIRST IN THE CARD */}
+        <div
+          className={`p-3.5 rounded-xl border-2 transition-all shadow-xs ${
+            isDueSoon24h
+              ? 'bg-rose-50 border-rose-400 text-rose-950'
+              : `${renewalStyle.bg} ${renewalStyle.text} ${renewalStyle.borderClass || 'border-amber-300'}`
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs font-black font-mono mb-2 pb-1.5 border-b border-black/10">
+            <div className="flex items-center gap-1.5">
+              {isDueSoon24h ? (
+                <Bell className="w-4 h-4 text-rose-600 animate-bounce" />
+              ) : isDue48h ? (
+                <Clock className="w-4 h-4 text-amber-700" />
+              ) : (
+                <Calendar className="w-4 h-4" />
+              )}
+              <span className="uppercase tracking-wider text-[11px] font-sans font-extrabold">
+                RENEWAL SCHEDULE & DUE DAYS
+              </span>
+            </div>
+            <span
+              className={`text-[10px] px-2.5 py-0.5 rounded-full font-mono uppercase font-black tracking-wide shadow-2xs ${
+                isDueSoon24h
+                  ? 'bg-rose-600 text-white animate-pulse'
+                  : isDue48h
+                  ? 'bg-amber-600 text-white'
+                  : isHold
+                  ? 'bg-slate-300 text-slate-800'
+                  : 'bg-white/80 text-slate-900 border border-black/10'
+              }`}
+            >
+              {isHold ? 'ON HOLD' : `${medication.ptom} REMAINING`}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+            <div className="bg-white/70 p-2 rounded-lg border border-black/5 shadow-2xs">
+              <span className="block text-[10px] opacity-80 font-sans font-bold">RENEW DATE:</span>
+              <span className="font-black text-sm tracking-tight">{medication.renewDate}</span>
+            </div>
+            <div className="bg-white/70 p-2 rounded-lg border border-black/5 shadow-2xs">
+              <span className="block text-[10px] opacity-80 font-sans font-bold">RENEW TIME:</span>
+              <span className="font-black text-sm tracking-tight">{medication.renewTime}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 2. Medication Identification & Dosage */}
         <div>
           <div className="flex items-start justify-between gap-2">
             <h3 className="text-base font-extrabold tracking-tight text-slate-950 uppercase leading-snug">
@@ -211,13 +260,7 @@ export const MedicationCard: React.FC<Props> = ({
           </div>
         </div>
 
-        {medication.notes && (
-          <p className="text-[11px] text-slate-700 bg-amber-50/70 p-2 rounded-lg border border-amber-200/70 italic font-medium">
-            Note: {medication.notes}
-          </p>
-        )}
-
-        {/* Start / End Schedule Block */}
+        {/* 3. Start / End Schedule Block */}
         <div className="grid grid-cols-2 gap-2 text-[11px] font-mono bg-slate-50 p-2.5 rounded-xl border border-slate-200/80">
           <div>
             <span className="block text-[9px] uppercase font-sans font-bold text-slate-400">
@@ -235,69 +278,36 @@ export const MedicationCard: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* DISTINCT HIGHLIGHTED RENEWAL BOX WITH VIBRANT COLOR */}
-        <div
-          className={`p-3.5 rounded-xl border-2 transition-all shadow-xs ${
-            isDueSoon24h ? 'bg-rose-50 border-rose-400 text-rose-950' : `${renewalStyle.bg} ${renewalStyle.text} ${renewalStyle.borderClass || 'border-amber-300'}`
-          }`}
-        >
-          <div className="flex items-center justify-between text-xs font-black font-mono mb-1.5 pb-1 border-b border-black/10">
-            <div className="flex items-center gap-1.5">
-              {isDueSoon24h ? (
-                <Bell className="w-4 h-4 text-rose-600 animate-bounce" />
-              ) : (
-                <Calendar className="w-4 h-4" />
-              )}
-              <span className="uppercase tracking-wider text-[11px] font-sans font-extrabold">
-                RENEWAL SCHEDULE
-              </span>
-            </div>
-            {isDueSoon24h ? (
-              <span className="text-[9px] px-2 py-0.2 rounded-full font-sans uppercase font-black tracking-wider bg-rose-600 text-white animate-pulse">
-                ACTION DUE &lt;24H
-              </span>
-            ) : renewalStyle.tag ? (
-              <span className={`text-[10px] px-2 py-0.2 rounded-full font-sans uppercase font-black tracking-wider ${renewalStyle.pill}`}>
-                {renewalStyle.tag}
-              </span>
-            ) : null}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-            <div>
-              <span className="block text-[10px] opacity-80 font-sans font-bold">RENEW DATE:</span>
-              <span className="font-black text-sm tracking-tight">{medication.renewDate}</span>
-            </div>
-            <div>
-              <span className="block text-[10px] opacity-80 font-sans font-bold">RENEW TIME:</span>
-              <span className="font-black text-sm tracking-tight">{medication.renewTime}</span>
-            </div>
-          </div>
-        </div>
+        {/* 4. Notes (if any) */}
+        {medication.notes && (
+          <p className="text-[11px] text-slate-700 bg-amber-50/70 p-2 rounded-lg border border-amber-200/70 italic font-medium">
+            Note: {medication.notes}
+          </p>
+        )}
       </div>
 
       {/* Card Actions Footer with Colorful Action Buttons */}
-      <div className="p-3 bg-gradient-to-r from-slate-50 via-slate-100/50 to-slate-50 border-t border-slate-100 flex items-center justify-between gap-1">
+      <div className="p-3 bg-gradient-to-r from-slate-50 via-slate-100/50 to-slate-50 border-t border-slate-100 flex items-center justify-between gap-1 flex-wrap">
         {/* Quick Renew Buttons */}
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => onQuickRenew(medication.id, 7)}
-            className="px-2.5 py-1 text-xs font-bold text-blue-700 bg-white border border-blue-200 hover:bg-blue-600 hover:text-white rounded-lg transition-all flex items-center gap-1 shadow-2xs"
+            className="px-3 py-1.5 sm:px-2.5 sm:py-1 text-xs font-bold text-blue-700 bg-white border border-blue-200 hover:bg-blue-600 hover:text-white active:scale-95 rounded-lg transition-all flex items-center gap-1 shadow-2xs cursor-pointer min-h-[34px] sm:min-h-0"
             title="Renew for +7 Days"
           >
-            <RefreshCw className="w-3 h-3 stroke-[2.5]" />
+            <RefreshCw className="w-3.5 h-3.5 sm:w-3 sm:h-3 stroke-[2.5]" />
             <span>+7d</span>
           </button>
           <button
             onClick={() => onQuickRenew(medication.id, 14)}
-            className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-indigo-600 hover:text-white rounded-lg transition-all shadow-2xs"
+            className="px-3 py-1.5 sm:px-2.5 sm:py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-indigo-600 hover:text-white active:scale-95 rounded-lg transition-all shadow-2xs cursor-pointer min-h-[34px] sm:min-h-0"
             title="Renew for +14 Days"
           >
             +14d
           </button>
           <button
             onClick={() => onQuickRenew(medication.id, 30)}
-            className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-purple-600 hover:text-white rounded-lg transition-all shadow-2xs"
+            className="px-3 py-1.5 sm:px-2.5 sm:py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-purple-600 hover:text-white active:scale-95 rounded-lg transition-all shadow-2xs cursor-pointer min-h-[34px] sm:min-h-0"
             title="Renew for +30 Days"
           >
             +30d
@@ -308,30 +318,30 @@ export const MedicationCard: React.FC<Props> = ({
         <div className="flex items-center gap-1">
           <button
             onClick={() => onToggleHold(medication.id)}
-            className={`p-1.5 rounded-lg transition-all ${
+            className={`p-2 sm:p-1.5 rounded-lg transition-all cursor-pointer min-h-[34px] min-w-[34px] flex items-center justify-center ${
               isHold
                 ? 'bg-amber-500 text-white hover:bg-amber-600 shadow-xs'
                 : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200'
             }`}
             title={isHold ? 'Resume order' : 'Place on hold'}
           >
-            {isHold ? <Play className="w-3.5 h-3.5 fill-current" /> : <Pause className="w-3.5 h-3.5" />}
+            {isHold ? <Play className="w-4 h-4 sm:w-3.5 sm:h-3.5 fill-current" /> : <Pause className="w-4 h-4 sm:w-3.5 sm:h-3.5" />}
           </button>
 
           <button
             onClick={() => onEdit(medication)}
-            className="p-1.5 rounded-lg text-slate-600 hover:text-blue-700 hover:bg-blue-50 transition-colors"
+            className="p-2 sm:p-1.5 rounded-lg text-slate-600 hover:text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer min-h-[34px] min-w-[34px] flex items-center justify-center"
             title="Edit Medication Details"
           >
-            <Edit2 className="w-3.5 h-3.5" />
+            <Edit2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
           </button>
 
           <button
             onClick={() => onDelete(medication.id)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+            className="p-2 sm:p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer min-h-[34px] min-w-[34px] flex items-center justify-center"
             title="Delete Record"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
           </button>
         </div>
       </div>

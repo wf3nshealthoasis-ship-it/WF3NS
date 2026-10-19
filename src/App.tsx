@@ -14,6 +14,9 @@ import { FrequencySelectorModal } from './components/FrequencySelectorModal.tsx'
 import { DueReminderModal } from './components/DueReminderModal.tsx';
 import { DeleteConfirmModal } from './components/DeleteConfirmModal.tsx';
 import { ResetConfirmModal } from './components/ResetConfirmModal.tsx';
+import { MobileBottomNav } from './components/MobileBottomNav.tsx';
+import { LiveSyncModal } from './components/LiveSyncModal.tsx';
+import { liveSync, SyncStatus } from './services/liveSyncService.ts';
 import { DrugFrequency } from './data/drugFrequencies.ts';
 import { addDaysToDate, calculatePTOM, isDueWithin24Hours, isDueWithin48Hours } from './utils/dateUtils.ts';
 
@@ -49,7 +52,14 @@ export default function App() {
     return 'amber';
   });
 
-  const [activeView, setActiveView] = useState<'mar' | 'cards' | 'print' | 'renewals'>('mar');
+  // Default to 'cards' on mobile devices (<768px) for optimal bedside reading and touch interaction
+  const [activeView, setActiveView] = useState<'mar' | 'cards' | 'print' | 'renewals'>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      return 'cards';
+    }
+    return 'mar';
+  });
+
   const [selectedRoom, setSelectedRoom] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -58,6 +68,11 @@ export default function App() {
   // Print mode and scope settings
   const [printMode, setPrintMode] = useState<'renewal' | 'mar'>('renewal');
   const [printScope, setPrintScope] = useState<'48h' | '24h' | 'all'>('48h');
+
+  // Multi-Device Live Synchronization States
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('connected');
+  const [clientCount, setClientCount] = useState<number>(1);
+  const [isLiveSyncModalOpen, setIsLiveSyncModalOpen] = useState(false);
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -85,10 +100,40 @@ export default function App() {
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage(null);
-    }, 3000);
+    }, 3500);
   };
 
-  // Save to localStorage whenever medications change
+  // Subscribe to real-time live synchronization across all devices
+  useEffect(() => {
+    // Initial fetch from live server
+    liveSync.fetchHttpSnapshot();
+
+    const unsubscribe = liveSync.subscribe({
+      onMedicationsChange: (remoteMeds, source) => {
+        if (Array.isArray(remoteMeds) && remoteMeds.length > 0) {
+          setMedications(remoteMeds);
+        }
+      },
+      onThemeChange: (remoteTheme) => {
+        setRenewalTheme(remoteTheme);
+      },
+      onClientCountChange: (count) => {
+        setClientCount(count);
+      },
+      onStatusChange: (status) => {
+        setSyncStatus(status);
+      },
+      onToastNotice: (msg) => {
+        showToast(msg);
+      },
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // Save to localStorage whenever medications change (offline resilience)
   useEffect(() => {
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(medications));
@@ -97,7 +142,7 @@ export default function App() {
     }
   }, [medications]);
 
-  // Save theme to localStorage
+  // Save theme to localStorage and sync across devices
   const handleThemeChange = (newTheme: RenewalColorTheme) => {
     setRenewalTheme(newTheme);
     try {
@@ -105,6 +150,7 @@ export default function App() {
     } catch (e) {
       // ignore
     }
+    liveSync.setTheme(newTheme);
     showToast(`Renewal highlight color changed to ${newTheme.toUpperCase()}`);
   };
 
@@ -211,7 +257,7 @@ export default function App() {
     });
   }, [medications, selectedRoom, statusFilter, searchTerm]);
 
-  // Handlers
+  // Handlers with Real-Time Multi-Device Synchronization
   const handleSaveMedication = (med: Medication) => {
     setMedications((prev) => {
       const idx = prev.findIndex((m) => m.id === med.id);
@@ -222,24 +268,39 @@ export default function App() {
       }
       return [med, ...prev];
     });
-    showToast(`Order for ${med.medicationName} saved.`);
+    // Broadcast live to all devices
+    liveSync.saveMedication(med);
+    showToast(`Order for ${med.medicationName} saved & synced.`);
   };
 
   const handleUpdateMedicationField = (id: string, field: keyof Medication, value: any) => {
+    let updatedMed: Medication | null = null;
     setMedications((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, [field]: value } : m))
+      prev.map((m) => {
+        if (m.id === id) {
+          const mod = { ...m, [field]: value };
+          updatedMed = mod;
+          return mod;
+        }
+        return m;
+      })
     );
+    if (updatedMed) {
+      liveSync.saveMedication(updatedMed);
+    }
   };
 
   const handleQuickRenew = (id: string, days: number = 7) => {
+    const med = medications.find((m) => m.id === id);
+    if (!med) return;
+    const newStart = med.endDate || '18-10-2026';
+    const newEnd = addDaysToDate(newStart, days);
+    const newRenew = addDaysToDate(newEnd, 1);
+    const newPtom = calculatePTOM(newRenew, false);
+
     setMedications((prev) =>
       prev.map((m) => {
         if (m.id !== id) return m;
-        const newStart = m.endDate || '18-10-2026';
-        const newEnd = addDaysToDate(newStart, days);
-        const newRenew = addDaysToDate(newEnd, 1);
-        const newPtom = calculatePTOM(newRenew, false);
-
         return {
           ...m,
           startDate: newStart,
@@ -250,7 +311,9 @@ export default function App() {
         };
       })
     );
-    showToast(`Medication extended by +${days} days.`);
+    // Broadcast live to all devices
+    liveSync.quickRenew(id, days, newRenew, newPtom);
+    showToast(`Medication extended by +${days} days across all devices.`);
   };
 
   const handleBatchRenew = (ids: string[], days: number = 7) => {
@@ -271,7 +334,9 @@ export default function App() {
         };
       })
     );
-    showToast(`Batch renewed ${ids.length} orders by +${days} days.`);
+    // Broadcast live to all devices
+    liveSync.batchRenew(ids, days);
+    showToast(`Batch renewed ${ids.length} orders by +${days} days across all devices.`);
   };
 
   const handleToggleHold = (id: string) => {
@@ -287,7 +352,9 @@ export default function App() {
         }
       })
     );
-    showToast(`Order status updated.`);
+    // Broadcast live to all devices
+    liveSync.toggleHold(id);
+    showToast(`Order status updated across all devices.`);
   };
 
   const handleDeleteMedication = (id: string) => {
@@ -300,7 +367,9 @@ export default function App() {
     const med = medications.find((m) => m.id === id);
     setMedications((prev) => prev.filter((m) => m.id !== id));
     setMedicationToDelete(null);
-    showToast(`Order for ${med?.medicationName || 'Medication'} permanently deleted from Ward F3.`);
+    // Broadcast live deletion to all devices
+    liveSync.deleteMedication(id);
+    showToast(`Order for ${med?.medicationName || 'Medication'} deleted across all devices.`);
   };
 
   const handleAddNewRoom = (roomName: string) => {
@@ -317,7 +386,9 @@ export default function App() {
     setSelectedRoom('ALL');
     setSearchTerm('');
     setStatusFilter('ALL');
-    showToast('Reset to original F3 medication chart dataset.');
+    // Broadcast live reset to all devices
+    liveSync.resetToBaseline();
+    showToast('Reset to original F3 medication chart dataset on all devices.');
   };
 
   const handleExportCSV = () => {
@@ -441,10 +512,13 @@ export default function App() {
         onOpenDueSoonAlerts={handleOpenDueSoonAlerts}
         onOpenReminderModal={handleOpenReminderModal}
         onOpenPrintRenewals={() => handleOpenPrintRenewals('48h')}
+        syncStatus={syncStatus}
+        clientCount={clientCount}
+        onOpenLiveSyncModal={() => setIsLiveSyncModalOpen(true)}
       />
 
-      {/* Main Viewport Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-5">
+      {/* Main Viewport Content - Mobile friendly padding with bottom nav clearance */}
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-3 sm:pt-6 pb-28 md:pb-8 flex-1 w-full space-y-4 sm:space-y-5">
         {/* Toast Notification */}
         {toastMessage && (
           <div className="no-print fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-lg shadow-lg text-xs font-medium flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
@@ -643,6 +717,33 @@ export default function App() {
         isOpen={isResetConfirmOpen}
         onClose={() => setIsResetConfirmOpen(false)}
         onConfirmReset={handleConfirmReset}
+      />
+
+      {/* Multi-Device Live Synchronization Modal */}
+      <LiveSyncModal
+        isOpen={isLiveSyncModalOpen}
+        onClose={() => setIsLiveSyncModalOpen(false)}
+        status={syncStatus}
+        clientCount={clientCount}
+        medicationsCount={medications.length}
+      />
+
+      {/* Mobile Sticky Bottom Navigation Bar (Cards, MAR, Add FAB, Renewals, Alerts) */}
+      <MobileBottomNav
+        activeView={activeView}
+        setActiveView={(v) => {
+          if (v === 'print') {
+            setPrintMode('mar');
+          }
+          setActiveView(v);
+        }}
+        onOpenAddModal={() => {
+          setEditingMedication(null);
+          setIsModalOpen(true);
+        }}
+        onOpenReminderModal={handleOpenReminderModal}
+        onOpenPrintRenewals={() => handleOpenPrintRenewals('48h')}
+        dueAlertsCount={dueSoonCount + due48hCount}
       />
 
       {/* Minimal Footer */}
