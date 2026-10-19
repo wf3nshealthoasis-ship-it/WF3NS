@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Medication, RenewalColorTheme } from '../types/medication.ts';
 import { getRenewalStyle, getRouteBadgeStyle, getRoomBadgeStyle } from '../utils/themeConfig.ts';
-import { calculatePTOM, isDueWithin24Hours } from '../utils/dateUtils.ts';
+import { calculatePTOM, isDueWithin24Hours, isDueWithin48Hours } from '../utils/dateUtils.ts';
 import { DRUG_FREQUENCIES } from '../data/drugFrequencies.ts';
-import { Edit2, RefreshCw, Pause, Play, Trash2, ArrowUpDown, Bell, Activity } from 'lucide-react';
+import { Edit2, RefreshCw, Pause, Play, Trash2, ArrowUpDown, Bell, Activity, Clock } from 'lucide-react';
 
 interface Props {
   medications: Medication[];
@@ -132,7 +132,8 @@ export const MedicationTable: React.FC<Props> = ({
                 const roomStyle = getRoomBadgeStyle(med.room);
                 const isHold = med.status === 'HOLD' || med.ptom.includes('HOLD');
                 const isDueSoon24h = med.status === 'DUE_SOON' || isDueWithin24Hours(med.renewDate, med.status, med.ptom);
-                const isDue = isDueSoon24h || med.status === 'DUE' || med.ptom.startsWith('0') || med.ptom.startsWith('-') || med.ptom === '1 DAYS' || med.ptom === '2 DAYS';
+                const isDue48h = !isDueSoon24h && !isHold && isDueWithin48Hours(med.renewDate, med.status, med.ptom);
+                const isDue = isDueSoon24h || isDue48h || med.status === 'DUE' || med.ptom.startsWith('0') || med.ptom.startsWith('-') || med.ptom === '1 DAYS' || med.ptom === '2 DAYS';
 
                 // PTOM pill color
                 const getPtomColor = () => {
@@ -142,7 +143,7 @@ export const MedicationTable: React.FC<Props> = ({
                   if (days <= 0 || med.status === 'DUE' || med.status === 'DUE_SOON' || isDueSoon24h) {
                     return 'bg-rose-100 text-rose-900 border-rose-300 font-black animate-pulse';
                   }
-                  if (days <= 2) return 'bg-amber-100 text-amber-900 border-amber-300 font-bold';
+                  if (days <= 2 || isDue48h) return 'bg-amber-100 text-amber-900 border-amber-300 font-bold';
                   return 'bg-emerald-50 text-emerald-800 border-emerald-200';
                 };
 
@@ -153,7 +154,9 @@ export const MedicationTable: React.FC<Props> = ({
                       isHold
                         ? 'bg-slate-50/60 opacity-80'
                         : isDueSoon24h
-                        ? 'bg-rose-50/30 hover:bg-rose-50/60'
+                        ? 'bg-rose-50/40 hover:bg-rose-50/70'
+                        : isDue48h
+                        ? 'bg-amber-50/30 hover:bg-amber-50/60'
                         : isDue
                         ? 'bg-amber-50/20 hover:bg-amber-50/40'
                         : index % 2 === 0
@@ -372,6 +375,14 @@ export const MedicationTable: React.FC<Props> = ({
                         >
                           <Bell className="w-3 h-3 text-white animate-bounce" />
                           <span>DUE_SOON</span>
+                        </span>
+                      ) : isDue48h ? (
+                        <span
+                          className="inline-flex items-center gap-1 font-bold text-[11px] px-2.5 py-0.5 rounded-full border bg-amber-500 text-white shadow-2xs ring-1 ring-amber-300"
+                          title="Reminder: Prescription renewal is due within 48 hours"
+                        >
+                          <Clock className="w-3 h-3 text-white" />
+                          <span>48H DUE</span>
                         </span>
                       ) : (
                         <span

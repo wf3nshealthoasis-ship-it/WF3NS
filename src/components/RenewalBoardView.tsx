@@ -1,13 +1,15 @@
 import React from 'react';
 import { Medication, RenewalColorTheme } from '../types/medication.ts';
 import { getRenewalStyle, getRouteBadgeStyle, getRoomBadgeStyle } from '../utils/themeConfig.ts';
-import { Clock, AlertTriangle, CheckCircle, RefreshCw, Calendar, Activity, PauseCircle } from 'lucide-react';
+import { Clock, AlertTriangle, CheckCircle, RefreshCw, Calendar, Activity, PauseCircle, Printer, Trash2 } from 'lucide-react';
 
 interface Props {
   medications: Medication[];
   renewalTheme: RenewalColorTheme;
   onQuickRenew: (id: string, days: number) => void;
   onEditMedication: (medication: Medication) => void;
+  onDeleteMedication?: (id: string) => void;
+  onOpenPrintRenewals?: () => void;
 }
 
 export const RenewalBoardView: React.FC<Props> = ({
@@ -15,6 +17,8 @@ export const RenewalBoardView: React.FC<Props> = ({
   renewalTheme,
   onQuickRenew,
   onEditMedication,
+  onDeleteMedication,
+  onOpenPrintRenewals,
 }) => {
   // Categorize medications
   const urgent: Medication[] = [];
@@ -123,12 +127,23 @@ export const RenewalBoardView: React.FC<Props> = ({
             </button>
           </div>
 
-          <button
-            onClick={() => onEditMedication(med)}
-            className="text-xs text-blue-700 hover:text-blue-900 font-bold underline px-1"
-          >
-            Edit
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => onEditMedication(med)}
+              className="text-xs text-blue-700 hover:text-blue-900 font-bold underline px-1 cursor-pointer"
+            >
+              Edit
+            </button>
+            {onDeleteMedication && (
+              <button
+                onClick={() => onDeleteMedication(med.id)}
+                className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                title="Delete this order"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -153,6 +168,17 @@ export const RenewalBoardView: React.FC<Props> = ({
             <span className="text-blue-200 block text-[10px]">Action Required:</span>
             <span className="text-amber-400 font-black text-sm">{urgent.length} orders</span>
           </div>
+          {onOpenPrintRenewals && (
+            <button
+              type="button"
+              onClick={onOpenPrintRenewals}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-amber-950 font-black text-xs transition-all shadow-md cursor-pointer shrink-0"
+              title="Print official renewal medication sheet for doctor signature"
+            >
+              <Printer className="w-4 h-4 stroke-[2.5]" />
+              <span>Print Renewal Sheet</span>
+            </button>
+          )}
         </div>
       </div>
 

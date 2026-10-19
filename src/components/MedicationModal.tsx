@@ -10,7 +10,7 @@ import {
   ROUTE_OPTIONS,
 } from '../utils/dateUtils.ts';
 import { RENEWAL_THEMES } from '../utils/themeConfig.ts';
-import { X, Calendar, Clock, AlertTriangle, ShieldCheck, ListFilter, Sparkles } from 'lucide-react';
+import { X, Calendar, Clock, AlertTriangle, ShieldCheck, ListFilter, Sparkles, Trash2 } from 'lucide-react';
 import { FrequencySelectorModal } from './FrequencySelectorModal.tsx';
 import { DrugFrequency, DRUG_FREQUENCIES } from '../data/drugFrequencies.ts';
 
@@ -18,6 +18,7 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onSave: (medication: Medication) => void;
+  onDelete?: (id: string) => void;
   initialMedication?: Medication | null;
   existingRooms: string[];
   renewalTheme: RenewalColorTheme;
@@ -27,6 +28,7 @@ export const MedicationModal: React.FC<Props> = ({
   isOpen,
   onClose,
   onSave,
+  onDelete,
   initialMedication,
   existingRooms,
   renewalTheme,
@@ -520,20 +522,39 @@ export const MedicationModal: React.FC<Props> = ({
           </div>
 
           {/* Modal Footer */}
-          <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-2 text-xs font-black text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all shadow-md hover:shadow-lg ring-2 ring-blue-300"
-            >
-              {initialMedication ? 'Save Changes' : 'Create Medication Order'}
-            </button>
+          <div className="flex items-center justify-between gap-2 pt-4 border-t border-slate-200">
+            {initialMedication && onDelete ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onDelete(initialMedication.id);
+                  onClose();
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 hover:text-rose-800 transition-colors cursor-pointer"
+                title="Delete this medication order"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Order</span>
+              </button>
+            ) : (
+              <div />
+            )}
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 text-xs font-black text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all shadow-md hover:shadow-lg ring-2 ring-blue-300 cursor-pointer"
+              >
+                {initialMedication ? 'Save Changes' : 'Create Medication Order'}
+              </button>
+            </div>
           </div>
         </form>
       </div>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Medication, RenewalColorTheme } from '../types/medication.ts';
 import { getRenewalStyle, getRouteBadgeStyle, getRoomBadgeStyle } from '../utils/themeConfig.ts';
-import { isDueWithin24Hours } from '../utils/dateUtils.ts';
+import { isDueWithin24Hours, isDueWithin48Hours } from '../utils/dateUtils.ts';
 import { Calendar, Clock, RefreshCw, Pause, Play, Edit2, Trash2, Pill, Activity, Check, Bell, AlertTriangle } from 'lucide-react';
 
 interface Props {
@@ -29,7 +29,8 @@ export const MedicationCard: React.FC<Props> = ({
 
   const isHold = medication.status === 'HOLD' || medication.ptom.includes('HOLD');
   const isDueSoon24h = medication.status === 'DUE_SOON' || isDueWithin24Hours(medication.renewDate, medication.status, medication.ptom);
-  const isDue = isDueSoon24h || medication.status === 'DUE' || medication.ptom.startsWith('0') || medication.ptom.startsWith('-') || medication.ptom === '1 DAYS' || medication.ptom === '2 DAYS';
+  const isDue48h = !isDueSoon24h && !isHold && isDueWithin48Hours(medication.renewDate, medication.status, medication.ptom);
+  const isDue = isDueSoon24h || isDue48h || medication.status === 'DUE' || medication.ptom.startsWith('0') || medication.ptom.startsWith('-') || medication.ptom === '1 DAYS' || medication.ptom === '2 DAYS';
 
   // PTOM badge styling
   const getPtomBadge = () => {
@@ -41,7 +42,7 @@ export const MedicationCard: React.FC<Props> = ({
     if (days <= 0 || medication.status === 'DUE' || medication.status === 'DUE_SOON' || isDueSoon24h) {
       return 'bg-rose-600 text-white font-black animate-pulse shadow-xs';
     }
-    if (days <= 2) {
+    if (days <= 2 || isDue48h) {
       return 'bg-amber-500 text-white font-bold shadow-xs';
     }
     if (days <= 5) {
@@ -57,6 +58,8 @@ export const MedicationCard: React.FC<Props> = ({
           ? 'border-slate-300 bg-slate-50/70'
           : isDueSoon24h
           ? 'border-rose-500 ring-4 ring-rose-400/40 shadow-lg shadow-rose-100/60'
+          : isDue48h
+          ? 'border-amber-400 ring-2 ring-amber-300/60 shadow-md shadow-amber-50'
           : isDue
           ? 'border-amber-400 ring-2 ring-amber-200'
           : 'border-slate-200 hover:border-blue-300'
@@ -89,6 +92,17 @@ export const MedicationCard: React.FC<Props> = ({
             </div>
           )}
 
+          {/* 48H Advance Reminder Badge (24h - 48h) */}
+          {isDue48h && (
+            <div
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500 text-white shadow-xs ring-2 ring-amber-300"
+              title="48-HOUR RENEWAL REMINDER: Prescription renewal is due within 48 hours."
+            >
+              <Clock className="w-3 h-3 text-white stroke-[2.5]" />
+              <span className="text-[10px] font-extrabold tracking-wider uppercase">48H REMINDER</span>
+            </div>
+          )}
+
           <span className={`text-[11px] px-2 py-0.5 rounded-md font-mono tracking-wide ${getPtomBadge()}`}>
             {medication.ptom}
           </span>
@@ -98,11 +112,13 @@ export const MedicationCard: React.FC<Props> = ({
                 ? 'bg-slate-400 ring-2 ring-slate-200'
                 : isDueSoon24h
                 ? 'bg-rose-600 ring-2 ring-rose-300 animate-ping'
+                : isDue48h
+                ? 'bg-amber-500 ring-2 ring-amber-300 animate-pulse'
                 : isDue
                 ? 'bg-amber-500 ring-2 ring-amber-200'
                 : 'bg-emerald-500 ring-2 ring-emerald-200'
             }`}
-            title={`Status: ${isDueSoon24h ? 'DUE_SOON (<24h)' : medication.status}`}
+            title={`Status: ${isDueSoon24h ? 'DUE_SOON (<24h)' : isDue48h ? '48H Reminder' : medication.status}`}
           />
         </div>
       </div>
@@ -136,6 +152,33 @@ export const MedicationCard: React.FC<Props> = ({
               title="Immediate 1-Click Renewal (+7 Days)"
             >
               <RefreshCw className="w-3.5 h-3.5" />
+              <span>Renew</span>
+            </button>
+          </div>
+        )}
+
+        {/* 48-Hour Reminder Banner for Staff */}
+        {isDue48h && (
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 shadow-2xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                <Clock className="w-3.5 h-3.5 stroke-[2.5]" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-[10px] font-black uppercase tracking-tight text-amber-950 block">
+                  48-HOUR RENEWAL REMINDER
+                </span>
+                <span className="text-[10px] text-amber-800 font-bold block truncate">
+                  Renewal deadline: {medication.renewDate} ({medication.renewTime})
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => onQuickRenew(medication.id, 7)}
+              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg transition-colors shadow-2xs flex items-center gap-1 shrink-0 ml-2 cursor-pointer"
+              title="Extend +7 Days"
+            >
+              <RefreshCw className="w-3 h-3" />
               <span>Renew</span>
             </button>
           </div>

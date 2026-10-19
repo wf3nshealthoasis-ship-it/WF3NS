@@ -1,6 +1,7 @@
 import React from 'react';
 import { Medication } from '../types/medication.ts';
-import { Search, Filter, Edit3, AlertCircle, CheckCircle2, Clock, Table, LayoutGrid, Pill } from 'lucide-react';
+import { Search, Filter, Edit3, AlertCircle, CheckCircle2, Clock, Table, LayoutGrid, Pill, Bell } from 'lucide-react';
+import { isDueWithin24Hours, isDueWithin48Hours } from '../utils/dateUtils.ts';
 
 interface Props {
   medications: Medication[];
@@ -12,6 +13,7 @@ interface Props {
   setInlineEditMode: (enabled: boolean) => void;
   activeView: 'mar' | 'cards' | 'renewals' | 'print';
   setActiveView: (view: 'mar' | 'cards' | 'renewals' | 'print') => void;
+  onOpenReminderModal?: () => void;
 }
 
 export const StatsBar: React.FC<Props> = ({
@@ -24,18 +26,20 @@ export const StatsBar: React.FC<Props> = ({
   setInlineEditMode,
   activeView,
   setActiveView,
+  onOpenReminderModal,
 }) => {
   const totalCount = medications.length;
 
   // Count DUE_SOON (< 24 hours)
   const dueSoonCount = medications.filter((m) => {
     if (m.status === 'HOLD' || m.status === 'DISCONTINUED' || m.ptom.includes('HOLD')) return false;
-    if (m.status === 'DUE_SOON' || m.status === 'DUE') return true;
-    const match = m.ptom.match(/(-?\d+)\s*DAYS?/i);
-    if (match) {
-      return parseInt(match[1], 10) <= 1; // 0 or 1 day (within 24h)
-    }
-    return false;
+    return m.status === 'DUE_SOON' || isDueWithin24Hours(m.renewDate, m.status, m.ptom);
+  }).length;
+
+  // Count 48H Reminders (≤ 48 hours)
+  const due48hCount = medications.filter((m) => {
+    if (m.status === 'HOLD' || m.status === 'DISCONTINUED' || m.ptom.includes('HOLD')) return false;
+    return isDueWithin48Hours(m.renewDate, m.status, m.ptom);
   }).length;
 
   const holdCount = medications.filter((m) => m.status === 'HOLD' || m.ptom.includes('HOLD')).length;
@@ -44,24 +48,25 @@ export const StatsBar: React.FC<Props> = ({
   return (
     <div className="space-y-3.5">
       {/* KPI Cards Row with Vivid Clinical Accents */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+      {/* KPI Cards Row with Vivid Clinical Accents */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {/* Total Medications Card */}
         <div className="bg-white rounded-xl border border-slate-200/90 overflow-hidden shadow-xs hover:shadow-md transition-shadow">
           <div className="h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-sky-400" />
-          <div className="p-3.5">
+          <div className="p-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                 Total Orders
               </span>
-              <div className="w-6 h-6 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-                <CheckCircle2 className="w-3.5 h-3.5" />
+              <div className="w-5 h-5 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                <CheckCircle2 className="w-3 h-3" />
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-black font-mono tracking-tight text-slate-900 tabular-nums">
+            <div className="mt-1.5 flex items-baseline gap-1.5">
+              <span className="text-xl font-black font-mono tracking-tight text-slate-900 tabular-nums">
                 {totalCount}
               </span>
-              <span className="text-[11px] font-semibold text-slate-400">ward records</span>
+              <span className="text-[10px] font-semibold text-slate-400">ward records</span>
             </div>
           </div>
         </div>
@@ -69,20 +74,20 @@ export const StatsBar: React.FC<Props> = ({
         {/* Active Prescriptions Card */}
         <div className="bg-white rounded-xl border border-slate-200/90 overflow-hidden shadow-xs hover:shadow-md transition-shadow">
           <div className="h-1 bg-gradient-to-r from-emerald-500 to-teal-400" />
-          <div className="p-3.5">
+          <div className="p-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-emerald-800 uppercase tracking-wider">
+              <span className="text-[11px] font-semibold text-emerald-800 uppercase tracking-wider">
                 Active Orders
               </span>
-              <div className="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-200" />
+              <div className="w-5 h-5 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-200" />
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-black font-mono tracking-tight text-emerald-700 tabular-nums">
+            <div className="mt-1.5 flex items-baseline gap-1.5">
+              <span className="text-xl font-black font-mono tracking-tight text-emerald-700 tabular-nums">
                 {activeCount}
               </span>
-              <span className="text-[11px] font-semibold text-emerald-600/80">administering</span>
+              <span className="text-[10px] font-semibold text-emerald-600/80">active</span>
             </div>
           </div>
         </div>
@@ -98,10 +103,10 @@ export const StatsBar: React.FC<Props> = ({
           title="Click to filter orders whose renewal date is within 24 hours"
         >
           <div className="h-1 bg-gradient-to-r from-rose-600 via-rose-500 to-amber-500" />
-          <div className="p-3.5">
+          <div className="p-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-black text-rose-900 uppercase tracking-wider">
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] font-black text-rose-900 uppercase tracking-wider">
                   DUE SOON (&lt;24H)
                 </span>
                 {dueSoonCount > 0 && (
@@ -111,16 +116,53 @@ export const StatsBar: React.FC<Props> = ({
                   </span>
                 )}
               </div>
-              <div className="w-6 h-6 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center ring-1 ring-rose-300">
-                <Clock className="w-3.5 h-3.5" />
+              <div className="w-5 h-5 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center ring-1 ring-rose-300">
+                <Bell className="w-3 h-3" />
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-black font-mono tracking-tight text-rose-700 tabular-nums">
+            <div className="mt-1.5 flex items-baseline gap-1.5">
+              <span className="text-xl font-black font-mono tracking-tight text-rose-700 tabular-nums">
                 {dueSoonCount}
               </span>
-              <span className="text-[11px] font-black text-rose-600 animate-pulse">
-                renewal &lt;24h
+              <span className="text-[10px] font-black text-rose-600 animate-pulse">
+                &lt;24h urgent
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* 48-Hour Reminder Card */}
+        <div
+          onClick={() => {
+            if (onOpenReminderModal) {
+              onOpenReminderModal();
+            } else {
+              setStatusFilter(statusFilter === 'DUE_48H' ? 'ALL' : 'DUE_48H');
+            }
+          }}
+          className={`rounded-xl border overflow-hidden shadow-xs hover:shadow-md transition-all cursor-pointer ${
+            due48hCount > 0
+              ? 'bg-gradient-to-br from-amber-50 to-orange-50/50 border-amber-300 ring-2 ring-amber-200'
+              : 'bg-white border-slate-200/90'
+          }`}
+          title="Click to open 48-hour reminder options and renewal review"
+        >
+          <div className="h-1 bg-gradient-to-r from-amber-500 to-orange-500" />
+          <div className="p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-extrabold text-amber-950 uppercase tracking-wider">
+                48H REMINDER
+              </span>
+              <div className="w-5 h-5 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center ring-1 ring-amber-300">
+                <Clock className="w-3 h-3 stroke-[2.5]" />
+              </div>
+            </div>
+            <div className="mt-1.5 flex items-baseline gap-1.5">
+              <span className="text-xl font-black font-mono tracking-tight text-amber-800 tabular-nums">
+                {due48hCount}
+              </span>
+              <span className="text-[10px] font-bold text-amber-700">
+                ≤48h due
               </span>
             </div>
           </div>
@@ -131,20 +173,20 @@ export const StatsBar: React.FC<Props> = ({
           holdCount > 0 ? 'bg-slate-50 border-slate-300' : 'bg-white border-slate-200/90'
         }`}>
           <div className="h-1 bg-gradient-to-r from-slate-400 via-purple-400 to-indigo-400" />
-          <div className="p-3.5">
+          <div className="p-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
+              <span className="text-[11px] font-semibold text-slate-600 uppercase tracking-wider">
                 Clinical Hold
               </span>
-              <div className="w-6 h-6 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
-                <AlertCircle className="w-3.5 h-3.5" />
+              <div className="w-5 h-5 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
+                <AlertCircle className="w-3 h-3" />
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-black font-mono tracking-tight text-slate-800 tabular-nums">
+            <div className="mt-1.5 flex items-baseline gap-1.5">
+              <span className="text-xl font-black font-mono tracking-tight text-slate-800 tabular-nums">
                 {holdCount}
               </span>
-              <span className="text-[11px] font-semibold text-slate-400">paused orders</span>
+              <span className="text-[10px] font-semibold text-slate-400">paused</span>
             </div>
           </div>
         </div>
@@ -166,11 +208,12 @@ export const StatsBar: React.FC<Props> = ({
 
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
           {/* Status Filter Segmented Buttons with Distinct Color Badges */}
-          <div className="flex items-center p-1 bg-slate-100/90 rounded-lg border border-slate-200/90">
+          <div className="flex items-center p-1 bg-slate-100/90 rounded-lg border border-slate-200/90 flex-wrap">
             {[
               { id: 'ALL', label: 'All Orders', activeColor: 'bg-white text-slate-900 font-bold shadow-xs' },
               { id: 'ACTIVE', label: 'Active', activeColor: 'bg-emerald-600 text-white font-bold shadow-xs' },
               { id: 'DUE_SOON', label: 'Due Soon (<24h)', activeColor: 'bg-rose-600 text-white font-black shadow-xs' },
+              { id: 'DUE_48H', label: 'Due in 48h (≤2d)', activeColor: 'bg-amber-500 text-white font-black shadow-xs' },
               { id: 'HOLD', label: 'On Hold', activeColor: 'bg-slate-700 text-white font-bold shadow-xs' },
             ].map((tab) => {
               const isSelected = statusFilter === tab.id;

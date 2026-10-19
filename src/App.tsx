@@ -11,11 +11,15 @@ import { RenewalBoardView } from './components/RenewalBoardView.tsx';
 import { PrintMarView } from './components/PrintMarView.tsx';
 import { MedicationCardsView } from './components/MedicationCardsView.tsx';
 import { FrequencySelectorModal } from './components/FrequencySelectorModal.tsx';
+import { DueReminderModal } from './components/DueReminderModal.tsx';
+import { DeleteConfirmModal } from './components/DeleteConfirmModal.tsx';
+import { ResetConfirmModal } from './components/ResetConfirmModal.tsx';
 import { DrugFrequency } from './data/drugFrequencies.ts';
-import { addDaysToDate, calculatePTOM, isDueWithin24Hours } from './utils/dateUtils.ts';
+import { addDaysToDate, calculatePTOM, isDueWithin24Hours, isDueWithin48Hours } from './utils/dateUtils.ts';
 
 const LOCAL_STORAGE_KEY = 'f3_medication_chart_records_v1';
 const THEME_STORAGE_KEY = 'f3_medication_chart_theme_v1';
+const CHIME_STORAGE_KEY = 'f3_medication_chart_chime_v1';
 
 export default function App() {
   // Load saved medications or fall back to Ward F3 initial data
@@ -51,11 +55,28 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [inlineEditMode, setInlineEditMode] = useState<boolean>(false);
 
-  // Modal state
+  // Print mode and scope settings
+  const [printMode, setPrintMode] = useState<'renewal' | 'mar'>('renewal');
+  const [printScope, setPrintScope] = useState<'48h' | '24h' | 'all'>('48h');
+
+  // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isFrequencyChartOpen, setIsFrequencyChartOpen] = useState(false);
+  const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
   const [editingMedication, setEditingMedication] = useState<Medication | null>(null);
   const [frequencyTargetMedication, setFrequencyTargetMedication] = useState<Medication | null>(null);
+  const [medicationToDelete, setMedicationToDelete] = useState<Medication | null>(null);
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+
+  // Audio reminder setting
+  const [chimeEnabled, setChimeEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(CHIME_STORAGE_KEY);
+      return saved !== 'false';
+    } catch {
+      return true;
+    }
+  });
 
   // Notification toast state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -87,6 +108,16 @@ export default function App() {
     showToast(`Renewal highlight color changed to ${newTheme.toUpperCase()}`);
   };
 
+  const handleChimeToggle = (enabled: boolean) => {
+    setChimeEnabled(enabled);
+    try {
+      localStorage.setItem(CHIME_STORAGE_KEY, String(enabled));
+    } catch {
+      // ignore
+    }
+    showToast(`Staff Alert Sound Chime ${enabled ? 'Enabled' : 'Disabled'}.`);
+  };
+
   // Extract all unique rooms in sorted order
   const existingRooms = useMemo(() => {
     const set = new Set<string>();
@@ -115,7 +146,19 @@ export default function App() {
       (m) =>
         m.status !== 'HOLD' &&
         m.status !== 'DISCONTINUED' &&
+        !m.ptom.includes('HOLD') &&
         (m.status === 'DUE_SOON' || isDueWithin24Hours(m.renewDate, m.status, m.ptom))
+    ).length;
+  }, [medications]);
+
+  // Compute 48-Hour reminder count across all active medications (≤48 hours)
+  const due48hCount = useMemo(() => {
+    return medications.filter(
+      (m) =>
+        m.status !== 'HOLD' &&
+        m.status !== 'DISCONTINUED' &&
+        !m.ptom.includes('HOLD') &&
+        isDueWithin48Hours(m.renewDate, m.status, m.ptom)
     ).length;
   }, [medications]);
 
@@ -140,6 +183,15 @@ export default function App() {
           m.status !== 'DISCONTINUED' &&
           (m.status === 'DUE_SOON' || isDueWithin24Hours(m.renewDate, m.status, m.ptom));
         if (!isDue) {
+          return false;
+        }
+      }
+      if (statusFilter === 'DUE_48H') {
+        const is48h =
+          m.status !== 'HOLD' &&
+          m.status !== 'DISCONTINUED' &&
+          isDueWithin48Hours(m.renewDate, m.status, m.ptom);
+        if (!is48h) {
           return false;
         }
       }
@@ -201,6 +253,27 @@ export default function App() {
     showToast(`Medication extended by +${days} days.`);
   };
 
+  const handleBatchRenew = (ids: string[], days: number = 7) => {
+    setMedications((prev) =>
+      prev.map((m) => {
+        if (!ids.includes(m.id)) return m;
+        const newStart = m.endDate || '18-10-2026';
+        const newEnd = addDaysToDate(newStart, days);
+        const newRenew = addDaysToDate(newEnd, 1);
+        const newPtom = calculatePTOM(newRenew, false);
+        return {
+          ...m,
+          startDate: newStart,
+          endDate: newEnd,
+          renewDate: newRenew,
+          status: 'ACTIVE',
+          ptom: newPtom,
+        };
+      })
+    );
+    showToast(`Batch renewed ${ids.length} orders by +${days} days.`);
+  };
+
   const handleToggleHold = (id: string) => {
     setMedications((prev) =>
       prev.map((m) => {
@@ -220,10 +293,14 @@ export default function App() {
   const handleDeleteMedication = (id: string) => {
     const med = medications.find((m) => m.id === id);
     if (!med) return;
-    if (window.confirm(`Are you sure you want to remove ${med.medicationName} (${med.room})?`)) {
-      setMedications((prev) => prev.filter((m) => m.id !== id));
-      showToast(`Removed ${med.medicationName}.`);
-    }
+    setMedicationToDelete(med);
+  };
+
+  const handleConfirmDelete = (id: string) => {
+    const med = medications.find((m) => m.id === id);
+    setMedications((prev) => prev.filter((m) => m.id !== id));
+    setMedicationToDelete(null);
+    showToast(`Order for ${med?.medicationName || 'Medication'} permanently deleted from Ward F3.`);
   };
 
   const handleAddNewRoom = (roomName: string) => {
@@ -232,17 +309,15 @@ export default function App() {
   };
 
   const handleResetData = () => {
-    if (
-      window.confirm(
-        'Reset all records back to the original Ward F3 patient medication chart from the document?'
-      )
-    ) {
-      setMedications(INITIAL_WARD_F3_MEDICATIONS);
-      setSelectedRoom('ALL');
-      setSearchTerm('');
-      setStatusFilter('ALL');
-      showToast('Reset to original F3 medication chart dataset.');
-    }
+    setIsResetConfirmOpen(true);
+  };
+
+  const handleConfirmReset = () => {
+    setMedications(INITIAL_WARD_F3_MEDICATIONS);
+    setSelectedRoom('ALL');
+    setSearchTerm('');
+    setStatusFilter('ALL');
+    showToast('Reset to original F3 medication chart dataset.');
   };
 
   const handleExportCSV = () => {
@@ -292,9 +367,18 @@ export default function App() {
   };
 
   const handleOpenDueSoonAlerts = () => {
-    setStatusFilter('DUE_SOON');
-    setActiveView('cards');
-    showToast(`Filtered to ${dueSoonCount} DUE_SOON medication order${dueSoonCount > 1 ? 's' : ''} (<24h).`);
+    setIsReminderModalOpen(true);
+  };
+
+  const handleOpenReminderModal = () => {
+    setIsReminderModalOpen(true);
+  };
+
+  const handleOpenPrintRenewals = (scope: '48h' | '24h' | 'all' = '48h') => {
+    setPrintMode('renewal');
+    setPrintScope(scope);
+    setActiveView('print');
+    showToast(`Opened printable Renewal Orders Sheet (${scope === '48h' ? '≤48h Due' : scope === '24h' ? '<24h Critical' : 'All'}).`);
   };
 
   const handleSelectFrequency = (freq: DrugFrequency) => {
@@ -335,7 +419,12 @@ export default function App() {
       {/* Top Header */}
       <Header
         activeView={activeView}
-        setActiveView={setActiveView}
+        setActiveView={(v) => {
+          if (v === 'print') {
+            setPrintMode('mar');
+          }
+          setActiveView(v);
+        }}
         onOpenAddModal={() => {
           setEditingMedication(null);
           setIsModalOpen(true);
@@ -348,7 +437,10 @@ export default function App() {
         onExportCSV={handleExportCSV}
         totalMedications={medications.length}
         dueSoonCount={dueSoonCount}
+        due48hCount={due48hCount}
         onOpenDueSoonAlerts={handleOpenDueSoonAlerts}
+        onOpenReminderModal={handleOpenReminderModal}
+        onOpenPrintRenewals={() => handleOpenPrintRenewals('48h')}
       />
 
       {/* Main Viewport Content */}
@@ -367,6 +459,8 @@ export default function App() {
             medications={medications}
             renewalTheme={renewalTheme}
             onBack={() => setActiveView('mar')}
+            initialPrintMode={printMode}
+            initialScope={printScope}
           />
         ) : activeView === 'renewals' ? (
           <div className="space-y-4">
@@ -384,6 +478,8 @@ export default function App() {
                 setEditingMedication(med);
                 setIsModalOpen(true);
               }}
+              onDeleteMedication={handleDeleteMedication}
+              onOpenPrintRenewals={() => handleOpenPrintRenewals('all')}
             />
           </div>
         ) : activeView === 'cards' ? (
@@ -400,6 +496,7 @@ export default function App() {
               setInlineEditMode={setInlineEditMode}
               activeView={activeView}
               setActiveView={setActiveView}
+              onOpenReminderModal={handleOpenReminderModal}
             />
 
             {/* Renewal Date & Time Customizer Toolbar */}
@@ -432,6 +529,8 @@ export default function App() {
                 setFrequencyTargetMedication(med);
                 setIsFrequencyChartOpen(true);
               }}
+              onOpenReminderModal={handleOpenReminderModal}
+              onOpenPrintRenewals={() => handleOpenPrintRenewals('48h')}
             />
           </div>
         ) : (
@@ -448,6 +547,7 @@ export default function App() {
               setInlineEditMode={setInlineEditMode}
               activeView={activeView}
               setActiveView={setActiveView}
+              onOpenReminderModal={handleOpenReminderModal}
             />
 
             {/* Renewal Date & Time Customizer Toolbar */}
@@ -495,6 +595,7 @@ export default function App() {
           setEditingMedication(null);
         }}
         onSave={handleSaveMedication}
+        onDelete={handleDeleteMedication}
         initialMedication={editingMedication}
         existingRooms={existingRooms}
         renewalTheme={renewalTheme}
@@ -509,6 +610,39 @@ export default function App() {
         }}
         currentFrequency={frequencyTargetMedication?.frequency || ''}
         onSelectFrequency={handleSelectFrequency}
+      />
+
+      {/* 48-Hour Medication Renewal Reminder Modal */}
+      <DueReminderModal
+        isOpen={isReminderModalOpen}
+        onClose={() => setIsReminderModalOpen(false)}
+        medications={medications}
+        renewalTheme={renewalTheme}
+        onQuickRenew={handleQuickRenew}
+        onBatchRenew={handleBatchRenew}
+        onEditMedication={(med) => {
+          setEditingMedication(med);
+          setIsModalOpen(true);
+        }}
+        onToggleHold={handleToggleHold}
+        onOpenPrintRenewals={handleOpenPrintRenewals}
+        chimeEnabled={chimeEnabled}
+        setChimeEnabled={handleChimeToggle}
+      />
+
+      {/* In-App Medication Deletion Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={medicationToDelete !== null}
+        medication={medicationToDelete}
+        onClose={() => setMedicationToDelete(null)}
+        onConfirmDelete={handleConfirmDelete}
+      />
+
+      {/* In-App Baseline Dataset Reset Confirmation Modal */}
+      <ResetConfirmModal
+        isOpen={isResetConfirmOpen}
+        onClose={() => setIsResetConfirmOpen(false)}
+        onConfirmReset={handleConfirmReset}
       />
 
       {/* Minimal Footer */}

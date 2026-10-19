@@ -9,7 +9,10 @@ interface Props {
   onExportCSV: () => void;
   totalMedications: number;
   dueSoonCount?: number;
+  due48hCount?: number;
   onOpenDueSoonAlerts?: () => void;
+  onOpenReminderModal?: () => void;
+  onOpenPrintRenewals?: () => void;
 }
 
 export const Header: React.FC<Props> = ({
@@ -21,7 +24,10 @@ export const Header: React.FC<Props> = ({
   onExportCSV,
   totalMedications,
   dueSoonCount = 0,
+  due48hCount = 0,
   onOpenDueSoonAlerts,
+  onOpenReminderModal,
+  onOpenPrintRenewals,
 }) => {
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-xs">
@@ -99,8 +105,21 @@ export const Header: React.FC<Props> = ({
               }`}
             >
               <Printer className="w-3.5 h-3.5 text-slate-600" />
-              <span>Printable MAR</span>
+              <span>Print MAR</span>
             </button>
+
+            {/* Dedicated Print Option for Renewal Medication */}
+            {onOpenPrintRenewals && (
+              <button
+                type="button"
+                onClick={onOpenPrintRenewals}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100/90 transition-all border border-amber-300 shadow-2xs cursor-pointer"
+                title="Print official renewal medication sheet for doctor signature"
+              >
+                <Printer className="w-3.5 h-3.5 text-amber-700" />
+                <span>Print Renewals</span>
+              </button>
+            )}
 
             <button
               onClick={onOpenFrequencyList}
@@ -131,6 +150,22 @@ export const Header: React.FC<Props> = ({
               <RefreshCw className="w-3 h-3 text-slate-400" />
               <span>Reset</span>
             </button>
+
+            {/* 48-Hour Medication Due Reminder Option */}
+            {due48hCount > 0 && onOpenReminderModal && (
+              <button
+                type="button"
+                onClick={onOpenReminderModal}
+                className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100/90 border border-amber-400 text-amber-950 text-xs font-black transition-all shadow-xs cursor-pointer"
+                title={`48-Hour Renewal Reminder: ${due48hCount} orders expiring within 48 hours. Click for reminder options and batch actions.`}
+              >
+                <Clock className="w-3.5 h-3.5 text-amber-600 stroke-[2.5]" />
+                <span className="hidden sm:inline">48h Reminder:</span>
+                <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-white font-mono text-[10px] font-black">
+                  {due48hCount}
+                </span>
+              </button>
+            )}
 
             {/* Staff DUE_SOON Notification Alert Bell */}
             {dueSoonCount > 0 ? (
