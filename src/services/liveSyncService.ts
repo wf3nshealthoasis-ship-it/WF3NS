@@ -2,8 +2,6 @@ import { Medication, RenewalColorTheme } from '../types/medication.ts';
 
 // Unique device identification
 const DEVICE_ID_KEY = 'f3_device_id';
-const LOCAL_STORAGE_KEY = 'ward_f3_medications_v2';
-const THEME_STORAGE_KEY = 'ward_f3_renewal_theme';
 
 export function getDeviceId(): string {
   try {
@@ -51,16 +49,16 @@ class LiveSyncManager {
   private deviceId: string = getDeviceId();
   private deviceName: string = getDeviceName();
   private isConnecting: boolean = false;
+  private currentMedicationsCache: Medication[] = [];
 
   constructor() {
-    // Start connection
+    // Connect websocket
     this.connect();
-    // Safety polling every 8s as fallback if websockets are delayed
+
+    // Background HTTP synchronization heartbeat every 3 seconds to ensure 100% data consistency
     this.pollInterval = setInterval(() => {
-      if (this.status !== 'connected') {
-        this.fetchHttpSnapshot();
-      }
-    }, 8000);
+      this.fetchHttpSnapshot();
+    }, 3000);
   }
 
   public subscribe(listener: LiveSyncListener): () => void {
@@ -68,6 +66,9 @@ class LiveSyncManager {
     // Send current status immediately
     listener.onStatusChange(this.status);
     listener.onClientCountChange(this.clientCount);
+    if (this.currentMedicationsCache.length > 0) {
+      listener.onMedicationsChange(this.currentMedicationsCache, { action: 'cache_sync' });
+    }
     return () => {
       this.listeners.delete(listener);
     };
@@ -90,7 +91,6 @@ class LiveSyncManager {
     try {
       const loc = window.location;
       const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-      // In dev environment or production, port and host
       const wsUrl = `${protocol}//${loc.host}/api/ws`;
 
       const ws = new WebSocket(wsUrl);
@@ -99,7 +99,7 @@ class LiveSyncManager {
       ws.onopen = () => {
         this.isConnecting = false;
         this.setStatus('connected');
-        console.log('[LiveSync] Connected to Ward F3 real-time synchronization server.');
+        console.log('[LiveSync] Real-time WebSocket connection established.');
         if (this.reconnectTimer) {
           clearTimeout(this.reconnectTimer);
           this.reconnectTimer = null;
@@ -121,11 +121,11 @@ class LiveSyncManager {
         this.scheduleReconnect();
       };
 
-      ws.onerror = (err) => {
-        console.warn('[LiveSync] Socket error, falling back to HTTP:', err);
+      ws.onerror = () => {
+        // Fallback to HTTP gracefully
         ws.close();
       };
-    } catch (e) {
+    } catch {
       this.isConnecting = false;
       this.setStatus('disconnected');
       this.scheduleReconnect();
@@ -138,7 +138,7 @@ class LiveSyncManager {
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
-    }, 3000);
+    }, 2500);
   }
 
   private handleServerMessage(msg: any): void {
@@ -146,7 +146,8 @@ class LiveSyncManager {
 
     switch (msg.type) {
       case 'init': {
-        if (Array.isArray(msg.medications)) {
+        if (Array.isArray(msg.medications) && msg.medications.length > 0) {
+          this.currentMedicationsCache = msg.medications;
           this.listeners.forEach((l) =>
             l.onMedicationsChange(msg.medications, { action: 'initial_sync' })
           );
@@ -169,78 +170,40 @@ class LiveSyncManager {
         break;
       }
 
-      case 'medication:created': {
-        const isFromOther = msg.senderDeviceId !== this.deviceId;
-        this.listeners.forEach((l) => {
-          l.onMedicationsChange([], {
-            action: 'created',
-            deviceName: msg.senderDeviceName,
-            medName: msg.medication?.medicationName,
-          });
-          if (isFromOther) {
-            l.onToastNotice(
-              `⚡ New order added: ${msg.medication?.medicationName} (${msg.medication?.room}) from ${msg.senderDeviceName || 'another device'}`
-            );
-          }
-        });
-        // Request full authoritative sync to prevent any state mismatch
-        this.requestFullSync();
-        break;
-      }
-
-      case 'medication:updated': {
-        const isFromOther = msg.senderDeviceId !== this.deviceId;
-        this.listeners.forEach((l) => {
-          l.onMedicationsChange([], {
-            action: 'updated',
-            deviceName: msg.senderDeviceName,
-            medName: msg.medication?.medicationName,
-          });
-          if (isFromOther) {
-            const actionText = msg.action === 'quick_renew'
-              ? `Renewed (+${msg.daysAdded}d)`
-              : msg.action === 'toggle_hold'
-              ? 'Hold status changed'
-              : 'Updated';
-            l.onToastNotice(
-              `⚡ ${actionText}: ${msg.medication?.medicationName} (${msg.medication?.room}) from ${msg.senderDeviceName || 'another device'}`
-            );
-          }
-        });
-        this.requestFullSync();
-        break;
-      }
-
-      case 'medication:deleted': {
-        const isFromOther = msg.senderDeviceId !== this.deviceId;
-        this.listeners.forEach((l) => {
-          l.onMedicationsChange([], {
-            action: 'deleted',
-            deviceName: msg.senderDeviceName,
-            medName: msg.medicationName,
-          });
-          if (isFromOther) {
-            l.onToastNotice(
-              `🗑️ Order deleted: ${msg.medicationName || 'Medication'} from ${msg.senderDeviceName || 'another device'}`
-            );
-          }
-        });
-        this.requestFullSync();
-        break;
-      }
-
       case 'medications:sync': {
-        if (Array.isArray(msg.medications)) {
-          const isFromOther = msg.senderDeviceId !== this.deviceId;
+        if (Array.isArray(msg.medications) && msg.medications.length > 0) {
+          this.currentMedicationsCache = msg.medications;
+          const isFromOther = msg.senderDeviceId && msg.senderDeviceId !== this.deviceId;
+
           this.listeners.forEach((l) => {
             l.onMedicationsChange(msg.medications, {
               action: msg.action || 'sync',
               deviceName: msg.senderDeviceName,
+              medName: msg.medication?.medicationName || msg.medicationName,
             });
-            if (isFromOther && msg.action === 'reset') {
-              l.onToastNotice(`🔄 Chart reset back to baseline by ${msg.senderDeviceName || 'another device'}`);
-            } else if (isFromOther && msg.action === 'batch_renew') {
-              l.onToastNotice(`⚡ Batch renewal applied from ${msg.senderDeviceName || 'another device'}`);
+
+            if (isFromOther) {
+              if (msg.action === 'create') {
+                l.onToastNotice(
+                  `⚡ New order added: ${msg.medication?.medicationName} (${msg.medication?.room}) from ${msg.senderDeviceName || 'another device'}`
+                );
+              } else if (msg.action === 'quick_renew') {
+                l.onToastNotice(
+                  `⚡ Order renewed (+${msg.daysAdded}d): ${msg.medication?.medicationName} from ${msg.senderDeviceName || 'another device'}`
+                );
+              } else if (msg.action === 'delete') {
+                l.onToastNotice(
+                  `🗑️ Order deleted: ${msg.medicationName || 'Medication'} from ${msg.senderDeviceName || 'another device'}`
+                );
+              } else if (msg.action === 'toggle_hold') {
+                l.onToastNotice(
+                  `⚡ Hold status updated: ${msg.medication?.medicationName} from ${msg.senderDeviceName || 'another device'}`
+                );
+              } else if (msg.action === 'batch_renew') {
+                l.onToastNotice(`⚡ Batch renewal applied from ${msg.senderDeviceName || 'another device'}`);
+              } else if (msg.action === 'reset') {
+                l.onToastNotice(`🔄 Chart reset back to baseline by ${msg.senderDeviceName || 'another device'}`);
+              }
             }
           });
         }
@@ -259,9 +222,8 @@ class LiveSyncManager {
   public requestFullSync(): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.send({ type: 'sync:request' });
-    } else {
-      this.fetchHttpSnapshot();
     }
+    this.fetchHttpSnapshot();
   }
 
   public async fetchHttpSnapshot(): Promise<void> {
@@ -269,10 +231,18 @@ class LiveSyncManager {
       const res = await fetch('/api/medications');
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data.medications)) {
-          this.listeners.forEach((l) =>
-            l.onMedicationsChange(data.medications, { action: 'http_sync' })
-          );
+        if (Array.isArray(data.medications) && data.medications.length > 0) {
+          // Compare with cache or update
+          const isDifferent =
+            this.currentMedicationsCache.length !== data.medications.length ||
+            JSON.stringify(this.currentMedicationsCache) !== JSON.stringify(data.medications);
+
+          if (isDifferent) {
+            this.currentMedicationsCache = data.medications;
+            this.listeners.forEach((l) =>
+              l.onMedicationsChange(data.medications, { action: 'http_snapshot' })
+            );
+          }
         }
         if (data.theme) {
           this.listeners.forEach((l) => l.onThemeChange(data.theme));
@@ -283,7 +253,7 @@ class LiveSyncManager {
         }
       }
     } catch {
-      // offline or server starting up
+      // Offline fallback
     }
   }
 
@@ -302,13 +272,15 @@ class LiveSyncManager {
     }
   }
 
-  // Client Actions that sync to all devices
+  // Client Actions that sync to all devices with both WebSocket AND REST fallback
   public saveMedication(med: Medication): void {
+    // 1. WebSocket broadcast
     this.send({
       type: 'medication:save',
       medication: med,
     });
-    // Also push via HTTP as guarantee
+
+    // 2. HTTP POST fallback with immediate confirmation
     fetch('/api/medications', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -317,7 +289,20 @@ class LiveSyncManager {
         deviceId: this.deviceId,
         deviceName: this.deviceName,
       }),
-    }).catch(() => {});
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.medication) {
+          // Update cache
+          const idx = this.currentMedicationsCache.findIndex((m) => m.id === med.id);
+          if (idx >= 0) {
+            this.currentMedicationsCache[idx] = data.medication;
+          } else {
+            this.currentMedicationsCache.unshift(data.medication);
+          }
+        }
+      })
+      .catch((err) => console.error('[LiveSync] REST save error:', err));
   }
 
   public deleteMedication(id: string): void {
@@ -325,6 +310,7 @@ class LiveSyncManager {
       type: 'medication:delete',
       id,
     });
+
     fetch(`/api/medications/${id}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
@@ -332,17 +318,45 @@ class LiveSyncManager {
         deviceId: this.deviceId,
         deviceName: this.deviceName,
       }),
-    }).catch(() => {});
+    })
+      .then(() => {
+        this.currentMedicationsCache = this.currentMedicationsCache.filter((m) => m.id !== id);
+      })
+      .catch((err) => console.error('[LiveSync] REST delete error:', err));
   }
 
-  public quickRenew(id: string, days: number, newRenewDate: string, newPtom: string): void {
+  public quickRenew(
+    id: string,
+    days: number,
+    newStartDate: string,
+    newEndDate: string,
+    newRenewDate: string,
+    newPtom: string
+  ): void {
     this.send({
       type: 'medication:quick_renew',
       id,
       days,
+      newStartDate,
+      newEndDate,
       newRenewDate,
       newPtom,
     });
+
+    fetch('/api/medications/quick-renew', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id,
+        days,
+        newStartDate,
+        newEndDate,
+        newRenewDate,
+        newPtom,
+        deviceId: this.deviceId,
+        deviceName: this.deviceName,
+      }),
+    }).catch((err) => console.error('[LiveSync] REST quick-renew error:', err));
   }
 
   public toggleHold(id: string): void {
@@ -350,6 +364,16 @@ class LiveSyncManager {
       type: 'medication:toggle_hold',
       id,
     });
+
+    fetch('/api/medications/toggle-hold', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id,
+        deviceId: this.deviceId,
+        deviceName: this.deviceName,
+      }),
+    }).catch((err) => console.error('[LiveSync] REST toggle-hold error:', err));
   }
 
   public batchRenew(ids: string[], days: number): void {
@@ -358,12 +382,24 @@ class LiveSyncManager {
       ids,
       days,
     });
+
+    fetch('/api/medications/batch-renew', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ids,
+        days,
+        deviceId: this.deviceId,
+        deviceName: this.deviceName,
+      }),
+    }).catch((err) => console.error('[LiveSync] REST batch-renew error:', err));
   }
 
   public resetToBaseline(): void {
     this.send({
       type: 'medications:reset',
     });
+
     fetch('/api/medications/reset', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -371,7 +407,7 @@ class LiveSyncManager {
         deviceId: this.deviceId,
         deviceName: this.deviceName,
       }),
-    }).catch(() => {});
+    }).catch((err) => console.error('[LiveSync] REST reset error:', err));
   }
 
   public setTheme(theme: RenewalColorTheme): void {
@@ -379,6 +415,7 @@ class LiveSyncManager {
       type: 'theme:change',
       theme,
     });
+
     fetch('/api/theme', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -386,7 +423,7 @@ class LiveSyncManager {
         theme,
         deviceId: this.deviceId,
       }),
-    }).catch(() => {});
+    }).catch((err) => console.error('[LiveSync] REST theme error:', err));
   }
 }
 

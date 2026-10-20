@@ -77,13 +77,7 @@ export const DueReminderModal: React.FC<Props> = ({
   const handleBatchRenewAll = (days: number = 7) => {
     const ids = allDue48h.map((m) => m.id);
     if (ids.length === 0) return;
-    if (
-      window.confirm(
-        `Are you sure you want to batch extend ALL ${ids.length} prescription renewals due in the next 48 hours by +${days} days?`
-      )
-    ) {
-      onBatchRenew(ids, days);
-    }
+    onBatchRenew(ids, days);
   };
 
   return (

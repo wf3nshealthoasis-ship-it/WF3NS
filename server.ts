@@ -6,7 +6,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { INITIAL_WARD_F3_MEDICATIONS } from './src/data/wardF3InitialData.ts';
 import { Medication, RenewalColorTheme } from './src/types/medication.ts';
-import { calculatePTOM } from './src/utils/dateUtils.ts';
+import { calculatePTOM, addDaysToDate } from './src/utils/dateUtils.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,11 +58,11 @@ const server = http.createServer(app);
 // Create WebSocket server on path /api/ws
 const wss = new WebSocketServer({ server, path: '/api/ws' });
 
-// Track connected clients
-function broadcast(message: object, excludeWs?: WebSocket): void {
+// Broadcast to all connected clients
+function broadcast(message: object): void {
   const payload = JSON.stringify(message);
   wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN && client !== excludeWs) {
+    if (client.readyState === WebSocket.OPEN) {
       try {
         client.send(payload);
       } catch (err) {
@@ -82,9 +82,9 @@ function broadcastClientsCount(): void {
 
 wss.on('connection', (ws: WebSocket, req) => {
   const clientIp = req.socket.remoteAddress;
-  console.log(`[WSS] New client connected from ${clientIp}. Total active: ${wss.clients.size}`);
+  console.log(`[WSS] Client connected from ${clientIp}. Total active: ${wss.clients.size}`);
 
-  // Send current state to newly connected client immediately
+  // Send full current state to newly connected client immediately
   ws.send(
     JSON.stringify({
       type: 'init',
@@ -133,10 +133,12 @@ function handleClientMessage(senderWs: WebSocket, msg: any): void {
       }
       saveToDisk();
 
-      // Broadcast update to all clients (including or excluding sender)
+      // Broadcast full updated medications list to EVERY client
       broadcast({
-        type: isNew ? 'medication:created' : 'medication:updated',
+        type: 'medications:sync',
+        medications,
         medication: med,
+        action: isNew ? 'create' : 'update',
         senderDeviceId: msg.deviceId,
         senderDeviceName: msg.deviceName || 'Device',
         timestamp: Date.now(),
@@ -152,9 +154,11 @@ function handleClientMessage(senderWs: WebSocket, msg: any): void {
       saveToDisk();
 
       broadcast({
-        type: 'medication:deleted',
-        id,
+        type: 'medications:sync',
+        medications,
+        deletedId: id,
         medicationName: target?.medicationName,
+        action: 'delete',
         senderDeviceId: msg.deviceId,
         senderDeviceName: msg.deviceName || 'Device',
         timestamp: Date.now(),
@@ -163,21 +167,25 @@ function handleClientMessage(senderWs: WebSocket, msg: any): void {
     }
 
     case 'medication:quick_renew': {
-      const { id, days, newRenewDate, newPtom } = msg;
+      const { id, days, newStartDate, newEndDate, newRenewDate, newPtom } = msg;
       const med = medications.find((m) => m.id === id);
       if (med) {
-        med.renewDate = newRenewDate;
-        med.ptom = newPtom || calculatePTOM(newRenewDate, med.status === 'HOLD');
-        if (med.status === 'EXPIRED') {
-          med.status = 'ACTIVE';
-        }
+        const start = newStartDate || med.endDate || '18-10-2026';
+        const end = newEndDate || addDaysToDate(start, days || 7);
+        const renew = newRenewDate || addDaysToDate(end, 1);
+        med.startDate = start;
+        med.endDate = end;
+        med.renewDate = renew;
+        med.status = 'ACTIVE';
+        med.ptom = newPtom || calculatePTOM(renew, false);
         saveToDisk();
 
         broadcast({
-          type: 'medication:updated',
+          type: 'medications:sync',
+          medications,
           medication: med,
           action: 'quick_renew',
-          daysAdded: days,
+          daysAdded: days || 7,
           senderDeviceId: msg.deviceId,
           senderDeviceName: msg.deviceName || 'Device',
           timestamp: Date.now(),
@@ -195,7 +203,8 @@ function handleClientMessage(senderWs: WebSocket, msg: any): void {
         saveToDisk();
 
         broadcast({
-          type: 'medication:updated',
+          type: 'medications:sync',
+          medications,
           medication: med,
           action: 'toggle_hold',
           senderDeviceId: msg.deviceId,
@@ -209,24 +218,19 @@ function handleClientMessage(senderWs: WebSocket, msg: any): void {
     case 'medications:batch_renew': {
       const { ids, days } = msg;
       if (Array.isArray(ids)) {
-        // Updated items
         const updatedIds = new Set(ids);
         medications = medications.map((m) => {
           if (updatedIds.has(m.id)) {
-            // Recalculate
-            const [d, mo, yr] = m.renewDate.split('-').map(Number);
-            const date = new Date(yr, mo - 1, d);
-            date.setDate(date.getDate() + Number(days));
-            const dd = String(date.getDate()).padStart(2, '0');
-            const mm = String(date.getMonth() + 1).padStart(2, '0');
-            const yyyy = date.getFullYear();
-            const newRenew = `${dd}-${mm}-${yyyy}`;
-            const isHold = m.status === 'HOLD';
+            const start = m.endDate || '18-10-2026';
+            const end = addDaysToDate(start, days || 7);
+            const renew = addDaysToDate(end, 1);
             return {
               ...m,
-              renewDate: newRenew,
-              status: m.status === 'EXPIRED' ? 'ACTIVE' : m.status,
-              ptom: calculatePTOM(newRenew, isHold),
+              startDate: start,
+              endDate: end,
+              renewDate: renew,
+              status: 'ACTIVE' as const,
+              ptom: calculatePTOM(renew, false),
             };
           }
           return m;
@@ -288,7 +292,7 @@ function handleClientMessage(senderWs: WebSocket, msg: any): void {
   }
 }
 
-// REST API Endpoints (as complement & fallback for standard HTTP requests)
+// REST API Endpoints (ensures 100% reliable updates even across strict network environments)
 app.get('/api/status', (_req: Request, res: Response) => {
   res.json({
     status: 'online',
@@ -310,6 +314,7 @@ app.get('/api/medications', (_req: Request, res: Response) => {
   });
 });
 
+// Save or edit a single medication order
 app.post('/api/medications', (req: Request, res: Response) => {
   const { medication, deviceId, deviceName } = req.body;
   if (!medication || !medication.id) {
@@ -327,16 +332,117 @@ app.post('/api/medications', (req: Request, res: Response) => {
   saveToDisk();
 
   broadcast({
-    type: isNew ? 'medication:created' : 'medication:updated',
+    type: 'medications:sync',
+    medications,
     medication,
+    action: isNew ? 'create' : 'update',
     senderDeviceId: deviceId,
     senderDeviceName: deviceName || 'Device',
     timestamp: Date.now(),
   });
 
-  res.json({ success: true, medication });
+  res.json({ success: true, medication, total: medications.length });
 });
 
+// Quick-renew medication via REST
+app.post('/api/medications/quick-renew', (req: Request, res: Response) => {
+  const { id, days = 7, newStartDate, newEndDate, newRenewDate, newPtom, deviceId, deviceName } = req.body;
+  const med = medications.find((m) => m.id === id);
+  if (!med) {
+    res.status(404).json({ error: 'Medication not found' });
+    return;
+  }
+
+  const start = newStartDate || med.endDate || '18-10-2026';
+  const end = newEndDate || addDaysToDate(start, days);
+  const renew = newRenewDate || addDaysToDate(end, 1);
+  med.startDate = start;
+  med.endDate = end;
+  med.renewDate = renew;
+  med.status = 'ACTIVE';
+  med.ptom = newPtom || calculatePTOM(renew, false);
+  saveToDisk();
+
+  broadcast({
+    type: 'medications:sync',
+    medications,
+    medication: med,
+    action: 'quick_renew',
+    daysAdded: days,
+    senderDeviceId: deviceId,
+    senderDeviceName: deviceName || 'Device',
+    timestamp: Date.now(),
+  });
+
+  res.json({ success: true, medication: med });
+});
+
+// Toggle hold via REST
+app.post('/api/medications/toggle-hold', (req: Request, res: Response) => {
+  const { id, deviceId, deviceName } = req.body;
+  const med = medications.find((m) => m.id === id);
+  if (!med) {
+    res.status(404).json({ error: 'Medication not found' });
+    return;
+  }
+
+  med.status = med.status === 'HOLD' ? 'ACTIVE' : 'HOLD';
+  med.ptom = calculatePTOM(med.renewDate, med.status === 'HOLD');
+  saveToDisk();
+
+  broadcast({
+    type: 'medications:sync',
+    medications,
+    medication: med,
+    action: 'toggle_hold',
+    senderDeviceId: deviceId,
+    senderDeviceName: deviceName || 'Device',
+    timestamp: Date.now(),
+  });
+
+  res.json({ success: true, medication: med });
+});
+
+// Batch renew via REST
+app.post('/api/medications/batch-renew', (req: Request, res: Response) => {
+  const { ids, days = 7, deviceId, deviceName } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: 'No IDs provided' });
+    return;
+  }
+
+  const idSet = new Set(ids);
+  medications = medications.map((m) => {
+    if (idSet.has(m.id)) {
+      const start = m.endDate || '18-10-2026';
+      const end = addDaysToDate(start, days);
+      const renew = addDaysToDate(end, 1);
+      return {
+        ...m,
+        startDate: start,
+        endDate: end,
+        renewDate: renew,
+        status: 'ACTIVE' as const,
+        ptom: calculatePTOM(renew, false),
+      };
+    }
+    return m;
+  });
+  saveToDisk();
+
+  broadcast({
+    type: 'medications:sync',
+    medications,
+    action: 'batch_renew',
+    senderDeviceId: deviceId,
+    senderDeviceName: deviceName || 'Device',
+    timestamp: Date.now(),
+  });
+
+  res.json({ success: true, count: ids.length, medications });
+});
+
+// Delete a medication order
 app.delete('/api/medications/:id', (req: Request, res: Response) => {
   const { id } = req.params;
   const { deviceId, deviceName } = req.body || {};
@@ -350,9 +456,11 @@ app.delete('/api/medications/:id', (req: Request, res: Response) => {
   saveToDisk();
 
   broadcast({
-    type: 'medication:deleted',
-    id,
+    type: 'medications:sync',
+    medications,
+    deletedId: id,
     medicationName: target.medicationName,
+    action: 'delete',
     senderDeviceId: deviceId,
     senderDeviceName: deviceName || 'Device',
     timestamp: Date.now(),
@@ -361,6 +469,7 @@ app.delete('/api/medications/:id', (req: Request, res: Response) => {
   res.json({ success: true, deletedId: id });
 });
 
+// Reset chart to baseline
 app.post('/api/medications/reset', (req: Request, res: Response) => {
   const { deviceId, deviceName } = req.body || {};
   medications = [...INITIAL_WARD_F3_MEDICATIONS];
@@ -378,6 +487,7 @@ app.post('/api/medications/reset', (req: Request, res: Response) => {
   res.json({ success: true, count: medications.length });
 });
 
+// Update renewal theme
 app.post('/api/theme', (req: Request, res: Response) => {
   const { theme, deviceId } = req.body;
   if (theme) {

@@ -274,20 +274,14 @@ export default function App() {
   };
 
   const handleUpdateMedicationField = (id: string, field: keyof Medication, value: any) => {
-    let updatedMed: Medication | null = null;
-    setMedications((prev) =>
-      prev.map((m) => {
-        if (m.id === id) {
-          const mod = { ...m, [field]: value };
-          updatedMed = mod;
-          return mod;
-        }
-        return m;
-      })
-    );
-    if (updatedMed) {
-      liveSync.saveMedication(updatedMed);
+    const current = medications.find((m) => m.id === id);
+    if (!current) return;
+    const updatedMed: Medication = { ...current, [field]: value };
+    if (field === 'renewDate') {
+      updatedMed.ptom = calculatePTOM(value, updatedMed.status === 'HOLD');
     }
+    setMedications((prev) => prev.map((m) => (m.id === id ? updatedMed : m)));
+    liveSync.saveMedication(updatedMed);
   };
 
   const handleQuickRenew = (id: string, days: number = 7) => {
@@ -298,28 +292,26 @@ export default function App() {
     const newRenew = addDaysToDate(newEnd, 1);
     const newPtom = calculatePTOM(newRenew, false);
 
-    setMedications((prev) =>
-      prev.map((m) => {
-        if (m.id !== id) return m;
-        return {
-          ...m,
-          startDate: newStart,
-          endDate: newEnd,
-          renewDate: newRenew,
-          status: 'ACTIVE',
-          ptom: newPtom,
-        };
-      })
-    );
+    const updatedMed: Medication = {
+      ...med,
+      startDate: newStart,
+      endDate: newEnd,
+      renewDate: newRenew,
+      status: 'ACTIVE',
+      ptom: newPtom,
+    };
+
+    setMedications((prev) => prev.map((m) => (m.id === id ? updatedMed : m)));
     // Broadcast live to all devices
-    liveSync.quickRenew(id, days, newRenew, newPtom);
+    liveSync.quickRenew(id, days, newStart, newEnd, newRenew, newPtom);
     showToast(`Medication extended by +${days} days across all devices.`);
   };
 
   const handleBatchRenew = (ids: string[], days: number = 7) => {
+    const idSet = new Set(ids);
     setMedications((prev) =>
       prev.map((m) => {
-        if (!ids.includes(m.id)) return m;
+        if (!idSet.has(m.id)) return m;
         const newStart = m.endDate || '18-10-2026';
         const newEnd = addDaysToDate(newStart, days);
         const newRenew = addDaysToDate(newEnd, 1);
@@ -340,21 +332,22 @@ export default function App() {
   };
 
   const handleToggleHold = (id: string) => {
-    setMedications((prev) =>
-      prev.map((m) => {
-        if (m.id !== id) return m;
-        const isCurrentlyHold = m.status === 'HOLD' || m.ptom.includes('HOLD');
-        if (isCurrentlyHold) {
-          const ptomRestored = calculatePTOM(m.renewDate, false);
-          return { ...m, status: 'ACTIVE', ptom: ptomRestored };
-        } else {
-          return { ...m, status: 'HOLD', ptom: '- HOLD -' };
-        }
-      })
-    );
+    const med = medications.find((m) => m.id === id);
+    if (!med) return;
+    const isCurrentlyHold = med.status === 'HOLD' || med.ptom.includes('HOLD');
+    const newStatus = isCurrentlyHold ? 'ACTIVE' : 'HOLD';
+    const newPtom = isCurrentlyHold ? calculatePTOM(med.renewDate, false) : '- HOLD -';
+
+    const updatedMed: Medication = {
+      ...med,
+      status: newStatus,
+      ptom: newPtom,
+    };
+
+    setMedications((prev) => prev.map((m) => (m.id === id ? updatedMed : m)));
     // Broadcast live to all devices
     liveSync.toggleHold(id);
-    showToast(`Order status updated across all devices.`);
+    showToast(`Order status updated to ${newStatus} across all devices.`);
   };
 
   const handleDeleteMedication = (id: string) => {
@@ -454,30 +447,32 @@ export default function App() {
 
   const handleSelectFrequency = (freq: DrugFrequency) => {
     if (frequencyTargetMedication) {
+      let newEndTime = frequencyTargetMedication.endTime;
+      let newRenewTime = frequencyTargetMedication.renewTime;
+      if (freq.startTime) {
+        const [hStr, mStr] = freq.startTime.split(':');
+        const h = parseInt(hStr, 10);
+        const min = mStr || '00';
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const formattedHour = h % 12 === 0 ? 12 : h % 12;
+        const timeStr = `${formattedHour}:${min} ${ampm}`;
+        newEndTime = timeStr;
+        newRenewTime = timeStr;
+      }
+
+      const updatedMed: Medication = {
+        ...frequencyTargetMedication,
+        frequency: freq.frequency,
+        endTime: newEndTime,
+        renewTime: newRenewTime,
+      };
+
       setMedications((prev) =>
-        prev.map((m) => {
-          if (m.id !== frequencyTargetMedication.id) return m;
-          let newEndTime = m.endTime;
-          let newRenewTime = m.renewTime;
-          if (freq.startTime) {
-            const [hStr, mStr] = freq.startTime.split(':');
-            const h = parseInt(hStr, 10);
-            const min = mStr || '00';
-            const ampm = h >= 12 ? 'PM' : 'AM';
-            const formattedHour = h % 12 === 0 ? 12 : h % 12;
-            const timeStr = `${formattedHour}:${min} ${ampm}`;
-            newEndTime = timeStr;
-            newRenewTime = timeStr;
-          }
-          return {
-            ...m,
-            frequency: freq.frequency,
-            endTime: newEndTime,
-            renewTime: newRenewTime,
-          };
-        })
+        prev.map((m) => (m.id === updatedMed.id ? updatedMed : m))
       );
-      showToast(`Updated frequency for ${frequencyTargetMedication.medicationName} to [${freq.code}] ${freq.frequency}`);
+      // Synchronize update to server & all devices
+      liveSync.saveMedication(updatedMed);
+      showToast(`Updated frequency for ${updatedMed.medicationName} to [${freq.code}] ${freq.frequency}`);
       setFrequencyTargetMedication(null);
     } else {
       showToast(`Selected frequency: [${freq.code}] ${freq.frequency} (${freq.doseTimes})`);
